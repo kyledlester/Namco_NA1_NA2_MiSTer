@@ -1,0 +1,2 @@
+# sys/pll_q17.qip includes this core PLL definition.
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) na1/na1_pll.sv]
