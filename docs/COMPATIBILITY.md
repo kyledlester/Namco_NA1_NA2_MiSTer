@@ -79,6 +79,7 @@ on it.
 | --- | --- |
 | Genuine MCU | the C69/C70 BIOS runs on an M37702 CPU core; the C219 PCM sound runs from it |
 | Video | all tile layers, 4-bpp tiles and sprites, the ROZ layer, direct-pixel lines, raster effects |
+| Display window | the area outside the CRTC display window is black, as on the board (MAME shows the backdrop colour there) |
 | Operator FLIP | the service-menu FLIP setting rotates the picture 180 degrees, as on the real board |
 | Orientation (OSD) | Horizontal, Vertical CCW, Vertical CW, Flipped |
 | CRT output | native 15 kHz, with optional CRT Adjust (H-size, H-position, V-shift) |

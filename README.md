@@ -94,6 +94,9 @@ NA-1 and NA-2 are Namco's early-1990s boards:
   See [docs/MRA_FORMAT.md](docs/MRA_FORMAT.md).
 * Full video: all tile layers, 4-bpp tiles and sprites, the rotate/zoom layer,
   direct-pixel lines and raster effects.
+* Black borders outside the game's display window, as on the arcade board
+  (MAME fills them with the background colour, e.g. F/A's maroon and
+  Exvania's light-blue side borders).
 * The game's own service-menu FLIP setting works (a true 180° rotation), which does not work in MAME.
 * Native 15 kHz output for CRTs, with optional CRT Adjust (H-size,
   H-position, V-shift) thanks to rmonic79/MiSTer-CRT-Adjust.

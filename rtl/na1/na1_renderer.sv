@@ -10,7 +10,15 @@
 //     update; evaluating at raster time from line 0 reproduces that for any
 //     store state and needs no write snooping), eight reads per line;
 //  3. fill x=0..303 with palette index ($EFFFBA[3:0] << 8), clear the
-//     per-pixel layer-priority map, the sprite-claimed map and the shadow line;
+//     per-pixel layer-priority map, the sprite-claimed map and the shadow line.
+//     CRTC display window: fill pixels outside the $EFFF80-$86 window (or
+//     every pixel while no valid window is programmed) are marked blank and
+//     output black. MAME fills its whole bitmap with the backdrop pen, which
+//     shows as a coloured border (F/A maroon, Exvania light blue; windows
+//     x 9..294 / 8..294). A CRTC drives no video outside its display area,
+//     and every layer, sprite and pixel line is already clipped to the
+//     window. Inside the window the backdrop still shows, also with
+//     $EFFF8E = 0, as in MAME;
 //  4. if $EFFF8E != 0 and the window is valid, draw layers in MAME order
 //     (priority 0..7, and layer 3 down to 0 inside one priority; a later
 //     layer overwrites and records its priority in the priority map): for
@@ -142,6 +150,7 @@ module na1_renderer #(parameter DEPTH=4,parameter integer VREG_QUIET=1024,parame
  reg [15:0] rc0=0,rc2=0,rc4=0,rc6=0,rc8=0,rca=0;
  reg [2:0] prio[0:3];reg [3:0] bank[0:3];
  reg [8:0] win_min_x=0,win_max_x=0;reg [7:0] win_min_y=0,win_max_y=0;reg win_valid=0;
+ reg disp_valid=0;                     // CRTC window programmed and non-empty (MAME screen_enabled)
  wire [16:0] mx=r80-17'h48,xx=r82-17'h49;
  wire [8:0] c_min_x=(mx[16] ? 9'd0 : (mx>17'd303 ? 9'd303 : mx[8:0]));
  wire [8:0] c_max_x=(xx[16] ? 9'd0 : (xx>17'd303 ? 9'd303 : xx[8:0]));
@@ -154,11 +163,13 @@ module na1_renderer #(parameter DEPTH=4,parameter integer VREG_QUIET=1024,parame
  // full 10-bit address space (M15E).
  // M29: 13 bits. [11:0] is the palette index as before; [12] selects MAME's
  // alternate "+$1000" palette interpretation for that pixel.
- (* ramstyle = "M10K" *) reg [12:0] linebuf[0:1023];
+ // [13] = CRTC blank: a fill pixel outside the $EFFF80-$86 display window,
+ // output as black (see "CRTC display window" above).
+ (* ramstyle = "M10K" *) reg [13:0] linebuf[0:1023];
  (* ramstyle = "M10K" *) reg shadowbuf[0:1023];
- reg lb_we=0;reg [9:0] lb_waddr=0;reg [12:0] lb_wdata=0;
+ reg lb_we=0;reg [9:0] lb_waddr=0;reg [13:0] lb_wdata=0;
  reg sb_we=0;reg [9:0] sb_waddr=0;reg sb_wdata=0;
- reg [12:0] lb_rdata=0;reg sb_rdata=0;
+ reg [13:0] lb_rdata=0;reg sb_rdata=0;
  // Per-frame sample of flip_native. Latched at logical line 0, which is inside
  // vertical blanking and before both the first rendered line (event_line 31 ->
  // target 32) and the first displayed line (32), so a frame is never rendered
@@ -184,7 +195,7 @@ module na1_renderer #(parameter DEPTH=4,parameter integer VREG_QUIET=1024,parame
  reg [303:0] claimed=0;                // sprite already claimed the pixel
 
  // ---- output pipeline -------------------------------------------------------
- reg s1_valid=0,s1_visible=0,s2_valid=0,s2_visible=0,s2_shadow=0,s1_alt=0,s2_alt=0;
+ reg s1_valid=0,s1_visible=0,s2_valid=0,s2_visible=0,s2_shadow=0,s1_alt=0,s2_alt=0,s2_blank=0;
  reg [8:0] s1_x=0,s2_x=0;reg [7:0] s1_y=0,s2_y=0;reg [11:0] s2_index=0;
  assign palette_enable=s1_valid;
  assign palette_word_addr=lb_rdata[11:0];
@@ -222,10 +233,10 @@ module na1_renderer #(parameter DEPTH=4,parameter integer VREG_QUIET=1024,parame
  always @(posedge clk_sys) begin
   s1_valid<=pixel_ce && !reset;s1_visible<=beam_visible;s1_x<=beam_x;s1_y<=beam_y;
   s2_valid<=s1_valid;s2_visible<=s1_visible;s2_x<=s1_x;s2_y<=s1_y;
-  s2_index<=lb_rdata[11:0];s2_alt<=lb_rdata[12];s2_shadow<=sb_rdata;
+  s2_index<=lb_rdata[11:0];s2_alt<=lb_rdata[12];s2_shadow<=sb_rdata;s2_blank<=lb_rdata[13];
   out_valid<=s2_valid;out_visible<=s2_visible;out_x<=s2_x;out_y<=s2_y;out_index<=s2_index;out_shadow<=s2_shadow;
   out_rgb555<=palette_rdata[14:0];
-  out_rgb<=s2_shadow ? {shade(p_r),shade(p_g),shade(p_b)} : {p_r,p_g,p_b};
+  out_rgb<=s2_blank ? 24'd0 : s2_shadow ? {shade(p_r),shade(p_g),shade(p_b)} : {p_r,p_g,p_b};
  end
 
  // ---- character prefetch (layers 0..3 + sprite slot) ------------------------
@@ -407,6 +418,10 @@ module na1_renderer #(parameter DEPTH=4,parameter integer VREG_QUIET=1024,parame
  // $EFFFBC bit n selects 4 bpp for normal layer n (bit 4 is the ROZ layer).
  wire layer_four=rbc[sl[1:0]];
  wire line_in_window=win_valid && target>=win_min_y && target<=win_max_y;
+ // CRTC blank: outside the display window (or with no window programmed) the
+ // board outputs black, not the backdrop pen MAME fills its whole bitmap with.
+ wire fill_blank=!disp_valid || fill_x<win_min_x || fill_x>win_max_x
+                 || target<win_min_y || target>win_max_y;
 
  integer i;
  initial begin
@@ -468,10 +483,11 @@ module na1_renderer #(parameter DEPTH=4,parameter integer VREG_QUIET=1024,parame
      win_min_x<=gflip ? 9'd303-c_max_x : c_min_x;win_max_x<=gflip ? 9'd303-c_min_x : c_max_x;
      win_min_y<=c_min_y;win_max_y<=c_max_y;
      win_valid<=(c_min_x<=c_max_x) && (c_min_y<=c_max_y) && r8e!=0;
+     disp_valid<=!mx[16] && !xx[16] && (c_min_x<=c_max_x) && (c_min_y<=c_max_y);
      fill_x<=0;claimed<=0;state<=FILL;
     end
     FILL: begin
-     lb_we<=1;lb_waddr<={buf_sel,fill_x};lb_wdata<={1'b0,rba[3:0],8'd0};
+     lb_we<=1;lb_waddr<={buf_sel,fill_x};lb_wdata<={fill_blank,1'b0,rba[3:0],8'd0};
      sb_we<=1;sb_waddr<={buf_sel,fill_x};sb_wdata<=0;
      pmap[fill_x]<=4'd0;
      if(fill_x==9'd303) begin sel_p<=0;sel_l<=3'd4;state<=SELECT;end
