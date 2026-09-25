@@ -75,7 +75,7 @@ More detail: [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md).
 
 ## About the hardware
 
-NA-1 and NA-2 are Namco's early-1990s boards for smaller cabinets:
+NA-1 and NA-2 are Namco's early-1990s boards:
 
 * Motorola **68000** main CPU at 12.5 MHz.
 * Namco **C69** (NA-1) or **C70** (NA-2) MCU, a Mitsubishi M37702 running
