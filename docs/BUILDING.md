@@ -32,6 +32,7 @@ domains should have non-negative setup and hold slack.
 1. Copy `Releases/Namco_NA1_NA2_YYYYMMDD.rbf` to `_Arcade/cores/`.
 2. Copy the `MRA/*.mra` files to `_Arcade/` and, optionally, the
    `MRA/_alternatives/_<Game>` folders to `_Arcade/_alternatives/`.
-3. Put the MAME ROM zips in `games/mame/`.
+3. Put the MAME ROM zips in `games/mame/`, plus `namcoc69.zip` and
+   `namcoc70.zip` if you use split or merged sets.
 
 See [COMPATIBILITY.md](COMPATIBILITY.md) for ROM set notes.

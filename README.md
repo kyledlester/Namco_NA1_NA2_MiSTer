@@ -18,6 +18,9 @@ on real MiSTer hardware.
    For region/revision variants, copy the `_<Game>` folders from
    [`MRA/_alternatives/`](MRA/_alternatives/) to **`/media/fat/_Arcade/_alternatives/`**.
 3. Put the MAME ROM zips (MAME 0.289 sets) in **`/media/fat/games/mame/`**.
+   With split or merged sets, also add the MCU BIOS zips **`namcoc69.zip`**
+   (NA-1 games) and **`namcoc70.zip`** (NA-2 games) there. Non-merged sets
+   already include the BIOS in each game's zip.
 4. Load a game from the **Arcade** menu.
 
 ROMs are not included. You must supply your own.

@@ -32,7 +32,7 @@
     <!-- board record: C357, ROT0 cabinet, joystick panel -->
     <rom index="2"><part>01 65 01 01 00 00</part></rom>
 
-    <rom index="0" zip="swcourtj.zip|swcourt.zip" md5="none">
+    <rom index="0" zip="swcourtj.zip|swcourt.zip|namcoc69.zip" md5="none">
         <!-- program ROM: stream $000000-$1FFFFF -->
         <interleave output="16">
             <part name="sc1-ep0l.4c" crc="145111dd" map="01"/>

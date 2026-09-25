@@ -33,7 +33,7 @@
     <!-- board record: C360, ROT0 cabinet, joystick panel, plain ROM board -->
     <rom index="2"><part>01 68 01 01 00 00 00</part></rom>
 
-    <rom index="0" zip="knckhead.zip" md5="none">
+    <rom index="0" zip="knckhead.zip|namcoc70.zip" md5="none">
         <!-- program ROM: stream $000000-$1FFFFF -->
         <interleave output="16">
             <part name="kh2-ep0l.6c" crc="b4b88077" map="01"/>

@@ -34,7 +34,7 @@
     <!-- board record: C350, ROT0 cabinet, joystick panel -->
     <rom index="2"><part>01 5E 01 02 00 00</part></rom>
 
-    <rom index="0" zip="exvaniaj.zip|exvania.zip" md5="none">
+    <rom index="0" zip="exvaniaj.zip|exvania.zip|namcoc69.zip" md5="none">
         <!-- Japanese EP0 program ROMs -->
         <interleave output="16">
             <part name="ex1-ep0l.4c" crc="18c12015" map="01"/>

@@ -33,7 +33,7 @@
     <!-- board record: C359, ROT0 cabinet, joystick panel, plain ROM board -->
     <rom index="2"><part>01 67 01 01 00 00 00</part></rom>
 
-    <rom index="0" zip="numanath.zip" md5="none">
+    <rom index="0" zip="numanath.zip|namcoc70.zip" md5="none">
         <!-- program ROM: stream $000000-$1FFFFF -->
         <interleave output="16">
             <part name="nm2-ep0l.6c" crc="f24414bb" map="01"/>

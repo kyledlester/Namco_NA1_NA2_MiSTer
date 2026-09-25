@@ -50,8 +50,12 @@ out of scope: this core targets arcade games only.
 
 Put MAME 0.289 sets (merged, split or non-merged) in `games/mame/`. Parts
 are matched by CRC, so older sets with different file names also load. NA-1
-sets need `c69.bin` and NA-2 sets need `c70.bin` (the MCU BIOS), which MAME
-keeps in the parent zip; clone MRAs look in the parent zip too.
+sets need `c69.bin` and NA-2 sets need `c70.bin` (the MCU BIOS). MAME
+treats these as device ROMs: non-merged sets include them in every game zip,
+while split and merged sets keep them only in `namcoc69.zip` and
+`namcoc70.zip`, so put those two zips in `games/mame/` as well. Each MRA looks
+in the game zip, then its parent zip, then the matching `namcoc69`/`namcoc70`
+zip.
 
 ## EEPROM and first boot
 

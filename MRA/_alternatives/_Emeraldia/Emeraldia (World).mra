@@ -31,7 +31,7 @@
     <!-- board record: C358, ROT0 cabinet, joystick panel, plain ROM board -->
     <rom index="2"><part>01 66 01 01 00 00 00</part></rom>
 
-    <rom index="0" zip="emeralda.zip" md5="none">
+    <rom index="0" zip="emeralda.zip|namcoc70.zip" md5="none">
         <!-- program ROM: stream $000000-$1FFFFF -->
         <interleave output="16">
             <part name="em2-ep0l.6c" crc="ff1479dc" map="01"/>
