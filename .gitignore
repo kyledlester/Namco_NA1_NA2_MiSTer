@@ -36,3 +36,6 @@ __pycache__/
 .DS_Store
 Thumbs.db
 .vs/
+
+# Stray files from building another core in this folder
+/Namco_NB1.*
