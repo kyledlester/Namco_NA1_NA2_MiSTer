@@ -4,9 +4,11 @@
 //
 // For the production SYS_HZ = 100,226,000 (= 2 x the 50.113 MHz master) and the
 // Option A fallback SYS_HZ = 100,000,000, over N clk_sys cycles:
-//   ce_master count == floor(N * 50,113,000 / SYS_HZ)  (exact average master)
-//   ce_68k/ce_mcu count == floor(master / 4)           (12.52825 MHz)
-//   audio_tick count == floor(N * 44,100 / SYS_HZ)     (C219 44.1 kHz)
+//   ce_master count == floor((N-1) * 50,113,000 / SYS_HZ)  (exact average master)
+//   ce_68k/ce_mcu count == floor(master / 4)               (12.52825 MHz)
+//   audio_tick count == floor((N-1) * 44,100 / SYS_HZ)     (C219 44.1 kHz)
+// (N-1: all of these enables are registered, so each appears one clk_sys
+// after the accumulator crosses; the spacing and long-run rate are unchanged.)
 // checked at every tick, i.e. the accumulators never lose or gain a tick, so
 // the long-run rate in real time is exactly the target at that clk_sys.
 // Production cadence is additionally exact: ce_master every 2 clk, ce_68k every
@@ -41,10 +43,11 @@ module clock_rates_tb;
         if(u_d2!==c_d2 || u_a!==c_a) mcu_bad=mcu_bad+1;
         if(a_d2) ca_d2=ca_d2+1;
         if(m_a) cm_a=cm_a+1; if(c_a) cc_a=cc_a+1; if(a_a) ca_a=ca_a+1;
-        // tick k happens on the cycle where floor(n*F/SYS) first reaches k
-        // (audio_tick is a registered pulse, hence n-1)
-        if(cm_d2!=(n*MASTER)/SYS_D2 || cc_d2!=cm_d2/4 || ca_d2!=((n-1)*RATE)/SYS_D2) bad_d2=bad_d2+1;
-        if(cm_a !=(n*MASTER)/SYS_A  || cc_a !=cm_a/4  || ca_a !=((n-1)*RATE)/SYS_A)  bad_a=bad_a+1;
+        // tick k happens on the cycle where floor(n*F/SYS) first reaches k.
+        // audio_tick and (since PR #2's setup-timing fix) the clock enables
+        // are registered pulses, so both are observed one clock later: n-1.
+        if(cm_d2!=((n-1)*MASTER)/SYS_D2 || cc_d2!=cm_d2/4 || ca_d2!=((n-1)*RATE)/SYS_D2) bad_d2=bad_d2+1;
+        if(cm_a !=((n-1)*MASTER)/SYS_A  || cc_a !=cm_a/4  || ca_a !=((n-1)*RATE)/SYS_A)  bad_a=bad_a+1;
     end
 
     initial begin
@@ -55,7 +58,7 @@ module clock_rates_tb;
         check(gap_bad==0,"D2: ce_master every 2 clk, ce_68k every 8 clk, no exceptions");
         check(phi_bad==0,"D2: FX68K phi2 exactly 4 clk (two master ticks) after phi1");
         check(mcu_bad==0,"ce_mcu == ce_68k");
-        $display("CLOCK RATES over %0d clk: D2 master %0d (= N/2), 68k %0d, audio %0d; A master %0d, 68k %0d, audio %0d",
+        $display("CLOCK RATES over %0d clk: D2 master %0d (= N/2 - 1, registered), 68k %0d, audio %0d; A master %0d, 68k %0d, audio %0d",
             N,cm_d2,cc_d2,ca_d2,cm_a,cc_a,ca_a);
         $display("  real-time rates: master %0d Hz, 68000/MCU %0.2f Hz, C219 %0d Hz at either clk_sys",MASTER,MASTER/4.0,RATE);
         $display("PASS CLOCK RATES: %0d checks",checks);
