@@ -7,7 +7,9 @@ module na1_video_ram #(parameter [23:0] BASE=24'hffe000,
  output wire ack,output wire [15:0] rdata,
  // M15B renderer read port: registered one-cycle read, no arbitration.
  input wire render_enable,input wire [ADDR_WIDTH-1:0] render_word_addr,
- output wire [15:0] render_rdata
+ output wire [15:0] render_rdata,
+ // Write snoop: high for the one clock a bus write commits to storage.
+ output wire wr_event,output wire [ADDR_WIDTH-1:0] wr_word_addr
 );
  localparam [31:0] LAST_WIDE={8'd0,BASE}+WORDS*2-1;
  localparam [23:0] LAST=LAST_WIDE[23:0];
@@ -23,6 +25,8 @@ module na1_video_ram #(parameter [23:0] BASE=24'hffe000,
  wire [15:0] storage_rdata;
  assign ack=!reset && selected && state==RESPONSE;
  assign rdata=ack && !held_write ? storage_rdata : 16'd0;
+ assign wr_event=storage_enable && held_write;
+ assign wr_word_addr=held_word_addr;
  na1_video_storage #(.WORDS(WORDS),.ADDR_WIDTH(ADDR_WIDTH)) storage(
   .clk_sys(clk_sys),.enable(storage_enable),.write(held_write),
   .word_addr(held_word_addr),.wdata(held_wdata),.byte_en(held_byte_en),

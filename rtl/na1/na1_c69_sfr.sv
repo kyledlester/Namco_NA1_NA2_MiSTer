@@ -165,6 +165,15 @@ module na1_c69_sfr #(parameter MAME_EARLY=1)(
    else period_of=({10'd0,timer_reg[t]}+26'd1)<<sh;
   end
  endfunction
+ // Setup-timing fix: period_of() (mode decode, +1 and a barrel shift) is
+ // registered per timer instead of being evaluated inside the load of
+ // t_period/t_cnt. A timer register/mode write reaches instr_commit at least
+ // three clocks later (bus ack, then the core's two-clock S_DONE), so the
+ // registered copy is always current when it is used.
+ reg [25:0] t_newperiod [0:7];
+ integer tp;
+ initial for(tp=0;tp<8;tp=tp+1) t_newperiod[tp]=0;
+ always @(posedge clk_sys) for(tp=0;tp<8;tp=tp+1) t_newperiod[tp]<=period_of(tp);
  wire [10:0] ad_period=ad_control[7] ? 11'd228 : 11'd456;   // 57*2*(2|4) clocks
  // ------------------------------------------------------------ interrupt resolver (m37710i_update_irqs)
  // MAME scans the lines from 19 down to 0 and takes each one whose priority is
@@ -175,10 +184,17 @@ module na1_c69_sfr #(parameter MAME_EARLY=1)(
  // of the equivalent 20-deep sequential scan, whose serial `best` dependency
  // was a 15-level path from ipl to the core's instruction boundary (M20C
  // timing). Equivalence to the scan is checked by sim/m20c_timing_tb.sv.
+ //
+ // Setup-timing fix: the resolver result is registered (c_* -> irq_*), cutting
+ // the ipl/flag_i -> resolver -> instruction-boundary path (-0.9 ns). The core
+ // waits one extra clock at the boundary (na1_m37702 S_DONE) so the registered
+ // value always reflects the ipl/I flag of the instruction that just finished.
  reg [19:0] elig,match,sel;reg [7:0] present,top;reg [2:0] best;
+ reg c_take;reg [4:0] c_line;reg [2:0] c_pri;
+ always @(posedge clk_sys) begin irq_take<=c_take;irq_line<=c_line;irq_pri<=c_pri;end
  always @* begin
-  irq_take=0;irq_line=0;irq_pri=0;elig=20'd0;match=20'd0;sel=20'd0;present=8'd0;top=8'd0;best=3'd0;
-  if(sim_force_valid) begin irq_take=1;irq_line=sim_force_line;irq_pri=int_ctl[sim_force_line][2:0];end
+  c_take=0;c_line=0;c_pri=0;elig=20'd0;match=20'd0;sel=20'd0;present=8'd0;top=8'd0;best=3'd0;
+  if(sim_force_valid) begin c_take=1;c_line=sim_force_line;c_pri=int_ctl[sim_force_line][2:0];end
   else if(!flag_i && !sim_inject_only) begin
    for(int k=0;k<20;k=k+1) elig[k]=pend[k] && (int_ctl[k][2:0]>ipl);          // above ipl (so >= 1)
    for(int p=1;p<8;p=p+1) for(int k=0;k<20;k=k+1) if(elig[k] && int_ctl[k][2:0]==p[2:0]) present[p]=1'b1;
@@ -186,8 +202,8 @@ module na1_c69_sfr #(parameter MAME_EARLY=1)(
    for(int p=1;p<8;p=p+1) if(top[p]) best=best|p[2:0];
    for(int k=0;k<20;k=k+1) match[k]=elig[k] && (int_ctl[k][2:0]==best);
    for(int k=0;k<20;k=k+1) sel[k]=match[k] && !(|(match>>(k+1)));             // one-hot: highest line
-   for(int k=0;k<20;k=k+1) if(sel[k]) irq_line=irq_line|k[4:0];
-   irq_take=|present;irq_pri=best;
+   for(int k=0;k<20;k=k+1) if(sel[k]) c_line=c_line|k[4:0];
+   c_take=|present;c_pri=best;
   end
  end
  // ------------------------------------------------------------ sequential
@@ -220,7 +236,7 @@ module na1_c69_sfr #(parameter MAME_EARLY=1)(
    // ---- instruction boundary: apply MAME's time-of-write side effects
    if(instr_commit) begin
     for(i=0;i<8;i=i+1) if(t_start_req[i]) begin
-     if(period_of(i)!=26'd0) begin t_run[i]<=1;t_period[i]<=period_of(i);t_cnt[i]<=period_of(i);end
+     if(t_newperiod[i]!=26'd0) begin t_run[i]<=1;t_period[i]<=t_newperiod[i];t_cnt[i]<=t_newperiod[i];end
     end
     t_start_req<=0;
     if(ad_start_req) begin ad_run<=1;ad_cnt<=ad_period;end

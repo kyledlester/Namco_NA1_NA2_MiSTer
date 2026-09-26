@@ -34,7 +34,14 @@ module na1_cpu_bus(
     end
     assign bus_active = transfer && !reset;
     assign pending = !reset && (state==WAIT_ACK || state==WAIT_END);
-    assign cpu_req = request && !reset && !native_iack;
+    // Setup-timing fix: `request` is only ever raised by a `transfer`, which
+    // already excludes interrupt-acknowledge cycles, and it drops as soon as AS
+    // rises, before the CPU can start an IACK cycle (FC only changes at the
+    // start of a bus cycle). The old `&& !native_iack` term was therefore
+    // redundant, and it put the FX68K's AS/FC outputs combinationally in front
+    // of every downstream request decoder (rAS -> SDRAM arbiter, DMA, video
+    // RAM: the -2.3 ns paths).
+    assign cpu_req = request && !reset;
     assign dtack_n = reset || native_iack ? 1'b1 : completion_n;
     always @(posedge clk_sys or posedge reset) begin
         if (reset) begin
