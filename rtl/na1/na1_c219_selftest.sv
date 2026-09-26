@@ -9,7 +9,7 @@
 // AUDIO_L/AUDIO_R wiring and channel order can be heard. It contains no
 // sample data; before the upload finishes the voice plays whatever the work
 // RAM holds.
-module na1_c219_selftest #(parameter PERIOD=200_000_000)( // 2 s at 100 MHz
+module na1_c219_selftest #(parameter PERIOD=200_452_000)( // 2 s of clk_sys (NA1.sv passes 2*SYS_HZ)
  input wire clk_sys,reset,
  input wire arm,                 // start the periodic trigger (e.g. after startup)
  output reg reg_req=0,output reg reg_write=1,output reg [8:0] reg_addr=0,output reg [7:0] reg_wdata=0,

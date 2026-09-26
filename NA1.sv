@@ -27,6 +27,15 @@ module emu (
     wire [207:0] c_peripheral_rdata;
     wire [191:0] blit_registers;wire blit_req,blit_ack,blit_fault;
     wire clk_sys, pll_locked;
+    // THE system/video frequency. Must equal na1_pll's output (100.226 MHz =
+    // 2 x the 50.113 MHz NA-1 master; scripts/test-video-ce.ps1 checks the two
+    // agree). Every wall-time rate in the core (master/68000/MCU enables, C219
+    // sample tick, ROM-board RTC second, CRT Adjust read rate, LED timer) is
+    // derived from it, so a PLL change only needs these two lines. The video
+    // pixel enable is NOT derived from it: it is always exactly clk_sys / 14
+    // (na1_video_timing), which is the MiSTer CE_PIXEL contract.
+    // docs/VIDEO_CE_FIX.md. Option A fallback: "100.000000 MHz" / 100_000_000.
+    localparam integer SYS_HZ = 100_226_000;
     na1_pll clocks(.refclk(CLK_50M), .rst(1'b0),
                    .clk_sys(clk_sys), .locked(pll_locked));
     wire [127:0] status;
@@ -233,7 +242,7 @@ module emu (
     // M24/M26 orientation selector (truth table at the screen_rotate decode
     // below); M28B.1 feeds it the board's base presentation.
     wire [1:0] orient = status[7:6];
-    wire flip_native;
+    wire flip_native, hdmi_rotate, hdmi_rotate_ccw;
     wire keycus_ack; wire [15:0] keycus_rdata;
     na1_keycus keycus(.clk_sys(clk_sys),.reset(reset_system),.req(peripheral_req[5]),
         .write(peripheral_write),.addr(peripheral_addr),.wdata(peripheral_wdata),
@@ -386,7 +395,7 @@ module emu (
         .orient(orient),.cfg_base_flip(cfg_video_base_flip),.cfg_panel(cfg_control_panel),
         .joystick_0(joystick_0),.joystick_1(joystick_1),
         .joystick_2(joystick_2),.joystick_3(joystick_3),
-        .flip_native(flip_native),
+        .flip_native(flip_native),.hdmi_rotate(hdmi_rotate),.hdmi_rotate_ccw(hdmi_rotate_ccw),
         .input_p1(input_p1),.input_p2(input_p2),
         .input_p3(input_p3),.input_p4(input_p4),
         .coin_1(coin_1),.coin_2(coin_2),.coin_3(coin_3),.coin_4(coin_4));
@@ -441,7 +450,7 @@ module emu (
         .c219_req(c69_c219_req),.c219_write(c69_c219_write),.c219_addr(c69_c219_addr),.c219_wdata(c69_c219_wdata),
         .c219_ack(c69_c219_ack),.c219_rdata(c69_c219_rdata),
         .genuine_release(),.shim_write());
-    na1 machine (
+    na1 #(.SYS_HZ(SYS_HZ)) machine (
         .clk_sys(clk_sys),
         .reset_async(RESET | !pll_locked | status[0] | buttons[1] | download_active),
         .maincpu_reset_release(maincpu_release),
@@ -482,7 +491,7 @@ module emu (
     // program ROM. Only the CPU's ROM reads pass through it -- blitter sources
     // still read ROM, exactly as MAME's blit() reads m_prgrom.
     wire io_rom_req,io_rom_ack;wire [15:0] io_rom_rdata;
-    na1_rom_board_io rom_board_io(.clk_sys(clk_sys),.reset(reset_system),.enable(cfg_rom_board_io),
+    na1_rom_board_io #(.CLK_HZ(SYS_HZ)) rom_board_io(.clk_sys(clk_sys),.reset(reset_system),.enable(cfg_rom_board_io),
         .rtc(rtc),
         .rom_req(c_rom_req),.rom_image(c_rom_image),.rom_word_addr(c_rom_word_addr),
         .rom_ack(c_rom_ack),.rom_rdata(c_rom_rdata),
@@ -611,8 +620,9 @@ module emu (
     // M15E/M23 video transport: the free-running beam supplies ce_pix and the
     // sync/blanking, the renderer supplies the colour. M23 [IMPLEMENTATION]:
     // the physical raster is the PS6406B envelope borrowed from the working
-    // Arcade-PsikyoSH2_MiSTer core (456x263 @ 7.15909 MHz, 15.70 kHz /
-    // 59.70 Hz, 32-dot HSync, 3-line VSync) with F/A's 304x224 logical image
+    // Arcade-PsikyoSH2_MiSTer core (456x263, 32-dot HSync, 3-line VSync; since
+    // the CE fix an exact clk_sys/14 = 7.159000 MHz dot, 15,699.56 Hz /
+    // 59.694 Hz, docs/VIDEO_CE_FIX.md) with F/A's 304x224 logical image
     // centred in it; it never stops (reset, ROM download), so a CRT stays
     // locked while MiSTer shows its loading bar. See rtl/na1/na1_video_timing.sv
     // and docs/M23_RESEARCH.md. Not physical NA-1 timing. CLK_VIDEO is clk_sys.
@@ -671,21 +681,24 @@ module emu (
     // -1 into +511; sign-extend explicitly (caught by sim/m26_crt_adjust_tb.sv).
     wire signed [8:0] crt_hoffset = crt_act ? ($signed({{5{crt_hpos_s[3]}},crt_hpos_s}) * 9'sd6) : 9'sd0;
     wire signed [5:0] crt_voffset = crt_act ? $signed({{2{crt_vsh_s[3]}},crt_vsh_s}) : 6'sd0;
-    // Read-rate generator. At H-Size neutral the module is fed the ACTUAL M23
+    // Read-rate generator. At H-Size neutral the module is fed the ACTUAL
     // pixel CE, so the read side counts exactly the same pulses as the write
     // side and the content is reproduced byte-exact (structural identity, not
-    // an approximation). For H-Size != 0 an exact rational NCO of the SAME
-    // form na1_video_timing.sv uses generates the adjusted rate:
+    // an approximation). For H-Size != 0 an exact rational NCO generates the
+    // adjusted rate (a deliberate resample, upstream crt_adjust design):
     //     READ_INC = PIXEL_HZ - hsize*STEP,  STEP = round(PIXEL_HZ/100)
-    // giving exactly 1.000% per step (step-size error 0.00014%). Positive
-    // hsize lowers the read rate -> slower read -> WIDER picture.
-    // Max READ_INC = 7,159,090 + 8*71,591 = 7,731,818, so the worst-case sum
-    // is 99,999,999 + 7,731,818 = 107,731,817 < 2^27: same 27-bit phase /
-    // 28-bit sum as M23. The accumulator is re-phased on every hs_ref_out
-    // rise so every line gets an identical read-tick pattern.
-    localparam integer CRT_SYS_HZ   = 100000000;
-    localparam integer CRT_PIXEL_HZ = 7159090;
-    localparam integer CRT_STEP     = 71591;
+    // PIXEL_HZ is the real dot rate, clk_sys/14 (7,159,000 Hz at SYS_HZ =
+    // 100,226,000; STEP = 71,590 = exactly 1.000% per step, as M26). Positive
+    // hsize lowers the read rate -> slower read -> WIDER picture. The ratio
+    // READ_INC/SYS_HZ -- the only thing that sets the picture -- is the same
+    // function of hsize as in M26, so behaviour is physically unchanged.
+    // Max READ_INC = 7,159,000 + 8*71,590 = 7,731,720, worst-case sum
+    // 100,225,999 + 7,731,720 = 107,957,719 < 2^27: 27-bit phase / 28-bit sum.
+    // The accumulator is re-phased on every hs_ref_out rise so every line gets
+    // an identical read-tick pattern.
+    localparam integer CRT_SYS_HZ   = SYS_HZ;
+    localparam integer CRT_PIXEL_HZ = SYS_HZ / 14;          // = na1_video_timing PIXEL_DIV
+    localparam integer CRT_STEP     = (CRT_PIXEL_HZ + 50) / 100;
     wire crt_hs_ref;
     reg  crt_hs_ref_d = 1'b0;
     always @(posedge clk_sys) crt_hs_ref_d <= crt_hs_ref;
@@ -749,7 +762,9 @@ module emu (
     // [HW-CONFIRMED] correct (owner, DE10-Nano, 2026-09-21): rotating with
     // rotate_ccw=0 produces the intended portrait presentation on HDMI with
     // no mirroring, and the unrotated mode restores the original
-    // presentation; aspect/presentation are correct in both.
+    // presentation; aspect/presentation are correct in both. (That picture,
+    // rot90CW of the raw raster, is exactly what orient 01 still produces
+    // after VIDEO_CE_FIX -- now as rot90CCW of F/A's 180-degree H.)
     // M23: the analog/native output is ALWAYS live, independent of HDMI
     // rotation. The earlier `VGA_DISABLE = video_rotated` coupling forced
     // VGA_HS/VS constant whenever Orientation=Vert (the default), i.e. no
@@ -760,35 +775,39 @@ module emu (
     // is a presentation transform, not a video source. As upstream cores
     // do, rotation is also bypassed automatically when MiSTer's global
     // Direct Video is on, so the HDMI path then carries the native raster.
-    // M24 orientation decode. One 2-bit selector, O[7:6]:
+    // Orientation decode (M24 selector O[7:6]; corrected by VIDEO_CE_FIX,
+    // docs/VIDEO_CE_FIX.md). H = the board's "Horizontal" presentation (the
+    // raw raster, or its 180 when the board record's base_flip = 1, e.g. F/A).
+    // CW/CCW name the rotation applied to H on the HDMI/scaler image
+    // (screen_rotate rotate_ccw=0 turns the image 90 degrees clockwise:
+    // TOP edge -> right side). Native = analog / Direct Video.
     //
     //   orient  OSD label      native/CRT   HDMI/scaler   no_rotate rotate_ccw flip_native
-    //   00      Horizontal     180          180           1         x          1
-    //   01      Vertical CCW   normal       90 CW         0         0          0
-    //   10      Vertical CW    normal       90 CCW        0         1          0
-    // The two vertical OSD labels were swapped (owner, 2026-09-22) with no
-    // RTL change: index 0 is now the native 180-degree presentation, so the
-    // same scaler rotation the framework calls CW now reaches the cabinet as
-    // CCW. Labels describe the observed result, not screen_rotate's argument.
-    //   11      Flipped        normal       normal        1         x          0
-    // M26 (owner request, 2026-09-22): the two non-rotating modes were SWAPPED.
-    // What M24 shipped as "Flipped" (the native 180-degree presentation) is the
-    // orientation the cabinet actually needs, so it is now index 0 "Horizontal"
-    // and therefore the power-on default; the former unrotated "Horizontal" is
-    // now index 3 "Flipped". Only this decode line changed -- the renderer
-    // transform, screen_rotate wiring and CW/CCW behaviour are untouched.
+    //   00      Horizontal     H            H             1         x          base
+    //   01      Vertical CCW   H            H rot 90 CCW  0         1          base
+    //   10      Vertical CW    H            H rot 90 CW   0         0          base
+    //   11      Flipped        H rot 180    H rot 180     1         x          ~base
+    //
+    // Previously the Vertical rows forced flip_native = 0 and used
+    // rotate_ccw = (orient==2). On F/A (base 1) that left the HDMI result
+    // right but turned the native picture 180 in both Vertical modes; on base-0
+    // boards it left the native picture right but made HDMI CW/CCW the
+    // opposite of their labels. Carrying the base flip and swapping the
+    // rotate_ccw sense fixes both: for F/A, rot90CCW(rot180(raw)) =
+    // rot90CW(raw), i.e. the HDMI pictures are bit-identical to the
+    // HW-confirmed M21/M26 ones.
     //
     // CW/CCW are framebuffer (screen_rotate -> MISTER_FB -> HDMI scaler)
     // modes only: a 90-degree rotation transposes the image and would require
     // retiming the native raster, which M23 forbids, so the CRT keeps showing
-    // the native orientation there -- the same behaviour as the reference
-    // cores. Flipped is applied upstream inside the renderer, before the
-    // output branches, so it appears on BOTH outputs while screen_rotate
-    // stays idle. screen_rotate's own `flip` input is therefore permanently
-    // 0 and is never used by this feature.
-    wire no_rotate = (orient != 2'd1 && orient != 2'd2) | direct_video;
-    wire rotate_ccw = (orient == 2'd2); // [HW-CONFIRMED] 0 = screen_rotate CW
-                                        // (OSD label "Vertical CCW", see above)
+    // H there -- the same behaviour as the reference cores. Flipped and the
+    // base flip are applied upstream inside the renderer, before the output
+    // branches, so they appear on BOTH outputs. screen_rotate's own `flip`
+    // input is therefore permanently 0.
+    // The decode itself lives in na1_board_presentation (with flip_native) so
+    // sim/orientation_tb.sv tests exactly what is built.
+    wire no_rotate = !hdmi_rotate | direct_video;
+    wire rotate_ccw = hdmi_rotate_ccw;  // OSD "Vertical CCW" (orient 01): rotate H 90 CCW
     wire flip = 1'b0;                   // M24: native flip is upstream; never used
     wire video_rotated;
     screen_rotate screen_rotate(.*);
@@ -817,11 +836,11 @@ module emu (
     localparam AUDIO_SELFTEST = 0;
 `endif
     wire audio_tick;
-    na1_audio_tick #(.CLK(100000000),.RATE(44100)) audio_tick_gen(.clk_sys(clk_sys),.reset(reset_system),.tick(audio_tick));
+    na1_audio_tick #(.CLK(SYS_HZ),.RATE(44100)) audio_tick_gen(.clk_sys(clk_sys),.reset(reset_system),.tick(audio_tick));
     wire c219_req,c219_write,c219_ack;wire [8:0] c219_addr;wire [7:0] c219_wdata,c219_rdata;
     wire signed [15:0] audio_left,audio_right;
     generate if(AUDIO_SELFTEST) begin: selftest
-      na1_c219_selftest selftest(.clk_sys(clk_sys),.reset(reset_system),.arm(startup_done),
+      na1_c219_selftest #(.PERIOD(2*SYS_HZ)) selftest(.clk_sys(clk_sys),.reset(reset_system),.arm(startup_done),
         .reg_req(c219_req),.reg_write(c219_write),.reg_addr(c219_addr),.reg_wdata(c219_wdata),.reg_ack(c219_ack));
       assign c69_c219_ack=1'b0;assign c69_c219_rdata=8'd0;
     end else if(C69_GENUINE) begin: genuine_driver
@@ -849,7 +868,7 @@ module emu (
     reg [15:0] overrun_seen=0;reg [24:0] overrun_led=0;
     always @(posedge clk_sys) begin
         overrun_seen<=render_overruns;
-        if(render_overruns!=overrun_seen) overrun_led<=25'd20000000;
+        if(render_overruns!=overrun_seen) overrun_led<=SYS_HZ/5;
         else if(overrun_led!=0) overrun_led<=overrun_led-1'b1;
     end
     assign LED_DISK = {1'b0, overrun_led!=0};

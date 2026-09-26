@@ -37,7 +37,7 @@
 //     values CD=0, CE=6, CF=4 as MAME's device_start.
 // Without the record bit the module is fully transparent (no address is
 // claimed), so every other board's program ROM is untouched.
-module na1_rom_board_io #(parameter integer CLK_HZ=100_000_000)(
+module na1_rom_board_io #(parameter integer CLK_HZ=100_226_000)( // NA1.sv passes SYS_HZ
  input wire clk_sys,reset,enable,
  input wire [64:0] rtc,
  // CPU program/mask-ROM read port from na1 (upstream)...

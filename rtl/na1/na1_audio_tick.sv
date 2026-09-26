@@ -1,8 +1,9 @@
 // M20A audio sample cadence [IMPLEMENTATION]: one-clock tick at an exact
 // average of RATE Hz from the CLK Hz system clock (fractional accumulator, no
 // PLL). Default 44,100 Hz = MAME's C219 clock; the physical NA-1 rate is
-// [UNKNOWN]. 100 MHz / 44.1 kHz = 2267.57 clocks per sample.
-module na1_audio_tick #(parameter CLK=100000000,parameter RATE=44100)(
+// [UNKNOWN]. CLK must be the real clk_sys frequency (NA1.sv passes SYS_HZ):
+// 100.226 MHz / 44.1 kHz = 2272.70 clocks per sample.
+module na1_audio_tick #(parameter CLK=100226000,parameter RATE=44100)(
  input wire clk_sys,reset,output reg tick=0
 );
  localparam W=$clog2(CLK)+1;

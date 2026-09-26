@@ -1,5 +1,7 @@
 // Machine boundary: FX68K plus replaceable MAME-compatible interrupt timing.
-module na1(
+module na1 #(
+    parameter integer SYS_HZ = 100_226_000   // real clk_sys frequency (NA1.sv)
+)(
     input wire clk_sys, input wire reset_async,
     input wire maincpu_reset_release,
     input wire irq_enabled, input wire [15:0] irq_mask, input wire [7:0] irq_position,
@@ -61,7 +63,7 @@ module na1(
         .level(irq_level),.event3(event3),.event4(event4));
     assign debug_irq={3'd0,vpa_n,iack_active,iack_service,iack_level,irq_level,
         pending4,pending3,event4,event3,irq_enabled,timing_line_event,timing_event_line,6'd0};
-    na1_clock_enables enables(.clk_sys(clk_sys), .reset(reset_system),
+    na1_clock_enables #(.SYS_HZ(SYS_HZ)) enables(.clk_sys(clk_sys), .reset(reset_system),
         .ce_master(ce_master), .ce_68k(ce_68k), .ce_mcu(ce_mcu),
         .ce_68k_phi2(ce_68k_phi2));
     wire [71:0] debug_native;

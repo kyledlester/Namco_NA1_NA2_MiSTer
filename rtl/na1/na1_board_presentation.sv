@@ -14,9 +14,16 @@
 //    none (`[HW-CONFIRMED]` 2026-09-22, owner DE10-Nano: the mode the OSD calls
 //    "Horizontal" showed it upside down and "Flipped" showed it correctly).
 //    The record supplies the base, so the OSD's "Horizontal" is the board's own
-//    correct presentation for every game and "Flipped" is its 180-degree
-//    opposite. The two Vertical modes are unchanged from M24 and never carry
-//    the base flip -- their `[HW-CONFIRMED]` F/A behaviour must not move.
+//    correct presentation (call it H) for every game and "Flipped" is its
+//    180-degree opposite.
+//    VIDEO_CE_FIX: the two Vertical modes now ALSO carry the base flip. Before,
+//    they forced flip_native = 0, so on a base_flip = 1 board (F/A) choosing a
+//    Vertical mode turned the native analog / Direct Video picture 180 degrees
+//    (external report: "says vertical CCW and the analog signal is CW"). The
+//    native output now shows H in every mode except Flipped; NA1.sv rotates H
+//    for the HDMI Vertical modes (rotate_ccw = orient==1), which keeps F/A's
+//    `[HW-CONFIRMED]` HDMI Vertical pictures bit-identical and makes the CW/CCW
+//    labels true for base_flip = 0 boards too. Truth table: docs/VIDEO_CE_FIX.md.
 //
 // 2. CONTROL PANEL (`cfg_panel`). The NA-1 port BITS are identical for every
 //    game (`[MAME-CONFIRMED]`: namcona1_joy and namcona1_quiz differ only in
@@ -44,7 +51,9 @@ module na1_board_presentation(
     input  wire [31:0] joystick_1,
     input  wire [31:0] joystick_2,
     input  wire [31:0] joystick_3,
-    output wire        flip_native,     // to na1_renderer
+    output wire        flip_native,     // to na1_renderer (native 180, both outputs)
+    output wire        hdmi_rotate,     // to screen_rotate: 90-degree HDMI mode selected
+    output wire        hdmi_rotate_ccw, // to screen_rotate rotate_ccw
     output wire [7:0]  input_p1,        // active low, as the C69 P7 mux reads
     output wire [7:0]  input_p2,
     output wire [7:0]  input_p3,        // read through the C69 A-D channels
@@ -62,11 +71,13 @@ module na1_board_presentation(
     wire quiz = (cfg_panel == PANEL_QUIZ);
 
     // --- 1. base orientation -------------------------------------------
-    // orient 00 "Horizontal" = the board's own correct presentation
-    // orient 11 "Flipped"    = its 180-degree opposite
-    // orient 01/10 vertical  = unchanged from M24, never base-flipped
-    assign flip_native = (orient == 2'd0) ?  cfg_base_flip :
-                         (orient == 2'd3) ? ~cfg_base_flip : 1'b0;
+    // orient 00 "Horizontal"   = H, the board's own correct presentation
+    // orient 01 "Vertical CCW" = H natively; HDMI shows H rotated 90 CCW
+    // orient 10 "Vertical CW"  = H natively; HDMI shows H rotated 90 CW
+    // orient 11 "Flipped"      = H rotated 180, on every output
+    assign flip_native     = cfg_base_flip ^ (orient == 2'd3);
+    assign hdmi_rotate     = (orient == 2'd1) || (orient == 2'd2);
+    assign hdmi_rotate_ccw = (orient == 2'd1);
 
     // --- 2. control panel ----------------------------------------------
     // Joystick panel (F/A): bit-for-bit the pre-M28B.1 wiring.
