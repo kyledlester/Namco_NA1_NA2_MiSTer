@@ -9,24 +9,31 @@ module na1_clock_enables #(
     parameter integer MASTER_HZ = 50_113_000
 )(
     input wire clk_sys, input wire reset,
-    output wire ce_master, output wire ce_68k, output wire ce_mcu,
-    output wire ce_68k_phi2
+    output reg ce_master = 1'b0, output reg ce_68k = 1'b0, output wire ce_mcu,
+    output reg ce_68k_phi2 = 1'b0
 );
     reg [26:0] phase;
     reg [1:0] divider;
     wire [27:0] next_phase = {1'b0, phase} + MASTER_HZ;
     wire [27:0] wrapped_phase = next_phase - SYS_HZ;
-    assign ce_master = !reset && next_phase >= SYS_HZ;
-    assign ce_68k = ce_master && divider == 2'd3;
+    wire tick = !reset && next_phase >= SYS_HZ;
+    // Setup-timing fix: the enables are registered copies of the phase compare
+    // (they used to be combinational, putting the 28-bit add/compare in series
+    // with the FX68K and M37702 datapaths). Every enable moves one clk_sys
+    // later together, so their spacing and relative order are unchanged.
+    always @(posedge clk_sys) begin
+        ce_master <= tick;
+        ce_68k <= tick && divider == 2'd3;
+        // Complementary half-cycle enable for FX68K, two master ticks after phi1.
+        ce_68k_phi2 <= tick && divider == 2'd1;
+    end
     assign ce_mcu = ce_68k;
-    // Complementary half-cycle enable for FX68K, two master ticks after phi1.
-    assign ce_68k_phi2 = ce_master && divider == 2'd1;
     always @(posedge clk_sys) begin
         if (reset) begin
             phase <= 0;
             divider <= 0;
         end else begin
-            if (ce_master) begin
+            if (tick) begin
                 phase <= wrapped_phase[26:0];
                 divider <= divider + 2'd1;
             end else phase <= next_phase[26:0];

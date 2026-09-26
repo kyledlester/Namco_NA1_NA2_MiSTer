@@ -95,7 +95,7 @@
 // that caught the transient invalidated the window for one whole line and drew
 // it as fill (the hardware-observed Exvania blue line). Settled register
 // changes, including posirq raster effects, still apply at the next line.
-module na1_renderer #(parameter DEPTH=4,parameter integer VREG_QUIET=1024,parameter integer VREG_MAXWAIT=6000)(
+module na1_renderer #(parameter DEPTH=4,parameter INC_REPLAY=1,parameter integer VREG_QUIET=1024,parameter integer VREG_MAXWAIT=6000)(
  input wire clk_sys,reset,
  // M15A beam contract
  input wire pixel_ce,input wire [8:0] beam_x,input wire [7:0] beam_y,
@@ -113,6 +113,9 @@ module na1_renderer #(parameter DEPTH=4,parameter integer VREG_QUIET=1024,parame
  output wire shape_enable,output wire [13:0] shape_word_addr,input wire [15:0] shape_rdata,
  output wire sprite_enable,output wire [10:0] sprite_word_addr,input wire [15:0] sprite_rdata,
  input wire [2047:0] vreg,
+ // Scroll RAM write snoop (line index = word address [7:0]) for the
+ // incremental command replay below.
+ input wire scroll_wr_event,input wire [7:0] scroll_wr_line,
  // M15D character prefetch memory side (authoritative character SDRAM)
  output wire prefetch_req,output wire [14:0] prefetch_row,
  input wire prefetch_ack,input wire [63:0] prefetch_data,
@@ -137,13 +140,21 @@ module na1_renderer #(parameter DEPTH=4,parameter integer VREG_QUIET=1024,parame
    vreg[16*7'h58+:4],vreg[16*7'h59+:4],vreg[16*7'h5a+:4],vreg[16*7'h5b+:4]};
  reg [VRW-1:0] vr_last=0,vr_shadow=0;
  reg [10:0] vr_quiet=0;reg [12:0] vr_wait=0;
+ // Setup-timing fix: the two 268-bit compares are registered (vr_chg/vr_diff)
+ // instead of feeding the counters and the shadow load directly. vr_chg says
+ // vr_last (= the live value one clock ago) differed from the value before
+ // it, so "quiet for VREG_QUIET clocks and !vr_chg" means vr_last is settled,
+ // and that settled copy is what the shadow takes.
+ reg vr_chg=0,vr_diff=0;
  always @(posedge clk_sys) begin
   vr_last<=vr_live;
-  if(vr_live!=vr_last) vr_quiet<=0;
+  vr_chg<=vr_live!=vr_last;
+  vr_diff<=vr_shadow!=vr_last;
+  if(vr_chg) vr_quiet<=0;
   else if(vr_quiet!=VREG_QUIET[10:0]) vr_quiet<=vr_quiet+1'b1;
-  // settled = unchanged for VREG_QUIET clocks AND not changing this cycle
-  if((vr_quiet==VREG_QUIET[10:0] && vr_live==vr_last) || vr_wait==VREG_MAXWAIT[12:0]) begin vr_shadow<=vr_live;vr_wait<=0;end
-  else if(vr_shadow!=vr_live) vr_wait<=vr_wait+1'b1;
+  // settled = unchanged for VREG_QUIET clocks
+  if((vr_quiet==VREG_QUIET[10:0] && !vr_chg) || vr_wait==VREG_MAXWAIT[12:0]) begin vr_shadow<=vr_last;vr_wait<=0;end
+  else if(vr_diff) vr_wait<=vr_wait+1'b1;
   else vr_wait<=0;
  end
  // ROZ transform registers, snapshotted with the rest ($EFFFC0..$EFFFCA).
@@ -249,7 +260,22 @@ module na1_renderer #(parameter DEPTH=4,parameter integer VREG_QUIET=1024,parame
 
  // ---- line engine -----------------------------------------------------------
  localparam IDLE=0,SNAP=1,SCROLL=2,SCROLL_LAST=3,ROZ=4,FILL=5,
-            SELECT=6,LAYER=7,SPRITES=8,DONE=9,PIXLINE=10;
+            SELECT=6,LAYER=7,SPRITES=8,DONE=9,PIXLINE=10,REPLAY=11;
+ // Incremental scroll replay. Replaying lines 0..target from scratch costs
+ // 8 clocks per line, i.e. up to ~2,050 of the ~6,370 clocks a line has at the
+ // bottom of the screen, which is what pushed busy ROZ lines over budget. The
+ // replay state after line N (scrollx/scrolly and the ROZ line start) is
+ // exactly the state the next line's replay reaches after line N, so when
+ // nothing it depends on has changed the next line only replays N+1..target.
+ // Anything that could make that differ falls back to the full replay:
+ //  * a scroll RAM write to a line <= target since the last full replay
+ //    (the full replay would re-read it; MAME re-evaluates from line 0);
+ //  * a change of the ROZ context (rc0..rca, r80) that the line start uses;
+ //  * the first rendered line of a frame, and presentation flip (the targets
+ //    then run backwards).
+ reg inc_valid=0;reg [7:0] inc_line=0;reg scroll_dirty=1;
+ reg [111:0] zctx_prev=0;
+ wire [111:0] zctx={rc0,rc2,rc4,rc6,rc8,rca,r80};
  reg [3:0] state=IDLE;
  reg [7:0] target=0,scroll_line=0;reg buf_sel=0;
  reg [15:0] scrollx[0:3];reg [8:0] scrolly[0:3];
@@ -321,10 +347,16 @@ module na1_renderer #(parameter DEPTH=4,parameter integer VREG_QUIET=1024,parame
  // writer
  reg writer_active=0;reg [2:0] wk=0;
  wire [33:0] mhead=meta[meta_rd];
- wire [7:0] m_ibase=mhead[7:0];wire [2:0] m_pri=mhead[10:8];wire m_shadow=mhead[11],m_flipx=mhead[12];
- wire [9:0] m_sx=mhead[22:13];wire [7:0] m_shape=mhead[30:23];
- wire m_four=mhead[31],m_altpal=mhead[32],m_opaque=mhead[33];
- wire [63:0] row=row_data[sl*64+:64];
+ wire [9:0] m_sx=mhead[22:13];
+ // Setup-timing fix: the burst used to decode the FIFO head (meta[meta_rd])
+ // and the prefetch row (row_data[sl]) combinationally on every pixel, which
+ // put meta_rd -> pmap/claimed (607 endpoints) and wx_p -> lb_wdata on
+ // failing paths. Both are constant for the whole 8-pixel burst, so they are
+ // captured when the writer arms and read from registers during the burst.
+ reg [33:0] wmeta=0;reg [63:0] row=0;
+ wire [7:0] m_ibase=wmeta[7:0];wire [2:0] m_pri=wmeta[10:8];wire m_shadow=wmeta[11],m_flipx=wmeta[12];
+ wire [7:0] m_shape=wmeta[30:23];
+ wire m_four=wmeta[31],m_altpal=wmeta[32],m_opaque=wmeta[33];
  wire [2:0] wc=m_flipx ? 3'd7-wk : wk;                          // source column
  // Setup-timing fix: wx used to be combinational (m_sx+wk) with claimed[wx]
  // read and written in the same cycle it was computed, chaining an adder in
@@ -340,6 +372,9 @@ module na1_renderer #(parameter DEPTH=4,parameter integer VREG_QUIET=1024,parame
  // after the prior burst's last claimed[] write has already committed).
  // Pure retiming: no new cycle is introduced, no value changes.
  reg [9:0] wx_p=0;reg claimed_p=0;
+ // pmap_p: pmap[] at wx_p, prefetched exactly like claimed_p (only sprites read
+ // it, and sprites never write pmap, so the prefetched value cannot go stale).
+ reg [3:0] pmap_p=0;
  wire [9:0] wx_p_next=wx_p+10'd1;
  wire [7:0] wpix=wc[0] ? row[{wc[2:1],4'd0}+:8] : row[{wc[2:1],4'd0}+8+:8];
  // One composition rule for both depths (MAME tile_pixel: the 4-bpp planes are
@@ -371,9 +406,24 @@ module na1_renderer #(parameter DEPTH=4,parameter integer VREG_QUIET=1024,parame
  // 46 + minx, using the same clamped window the layers use.
  // Narrow on purpose: 46+minx never exceeds 349, so this is a 32x10 signed
  // multiply (a couple of DSP blocks), not a 32x32 one.
- wire signed [9:0] z_dx=$signed({1'b0,c_min_x+9'd46});
- wire signed [31:0] z_basex=z_xoff + z_incxx*z_dx - {z_incyx[28:0],3'd0};
- wire signed [31:0] z_basey=z_yoff + z_incxy*z_dx - {z_incyy[28:0],3'd0};
+ //
+ // Setup-timing fix: this used to be one combinational cone (r80 -> clamp ->
+ // +46 -> 32x10 multiply -> 3-input add) into z_linex/z_liney, the worst
+ // clk_sys path of the whole design (-2.8 ns at 100 MHz). It is now three
+ // register stages fed by the SNAP registers (which only change at SNAP), and
+ // the replay seeds the line start at sidx==3 of line 0, when stage three is
+ // valid, instead of sidx==0. incxx/incxy are rc0/rc2 shifted left by 8, so the
+ // multiply is 16x10 with the shift applied to the (mod 2^32) product.
+ reg signed [9:0] z_dx=0;
+ reg signed [31:0] z_prodx=0,z_prody=0,z_basex=0,z_basey=0;
+ wire signed [25:0] z_prodx_w=$signed(rc0)*z_dx;
+ wire signed [25:0] z_prody_w=$signed(rc2)*z_dx;
+ always @(posedge clk_sys) begin
+  z_dx<=$signed({1'b0,c_min_x+9'd46});
+  z_prodx<={z_prodx_w[23:0],8'd0};z_prody<={z_prody_w[23:0],8'd0};
+  z_basex<=z_xoff + z_prodx - {z_incyx[28:0],3'd0};
+  z_basey<=z_yoff + z_prody - {z_incyy[28:0],3'd0};
+ end
  reg signed [31:0] z_linex=0,z_liney=0;   // line start, accumulated over the replay
  reg signed [31:0] zcx=0,zcy=0;           // running pixel coordinate
  reg [8:0] zx=0;
@@ -436,8 +486,9 @@ module na1_renderer #(parameter DEPTH=4,parameter integer VREG_QUIET=1024,parame
    state<=IDLE;wstate<=W_IDLE;sstate<=S_IDLE;zstate<=Z_IDLE;busy<=0;overrun_count<=0;lines_rendered<=0;
    fetch_req<=0;meta_rd<=0;meta_wr<=0;meta_count<=0;writer_active<=0;wk<=0;claimed<=0;
    flip_l<=flip_native;gflip<=vreg[16*7'h4c+:16]!=16'd0;
+   inc_valid<=0;scroll_dirty<=1;
   end else begin
-   if(line_event && event_line==8'd0) begin flip_l<=flip_native;gflip<=vreg[16*7'h4c+:16]!=16'd0;end
+   if(line_event && event_line==8'd0) begin flip_l<=flip_native;gflip<=vreg[16*7'h4c+:16]!=16'd0;inc_valid<=0;end
    if(start) begin
     if(busy) overrun_count<=overrun_count+1'b1;
     else begin
@@ -458,17 +509,31 @@ module na1_renderer #(parameter DEPTH=4,parameter integer VREG_QUIET=1024,parame
      // M31: from the committed shadow (field order as vr_live, MSB first).
      {r80,r82,r84,r86,r8e,rba,r22,rbc,raa,rc0,rc2,rc4,rc6,rc8,rca,
       prio[0],prio[1],prio[2],prio[3],bank[0],bank[1],bank[2],bank[3]}<=vr_shadow;
-     for(i=0;i<4;i=i+1) begin scrollx[i]<=16'h3a-2*i;scrolly[i]<=0;end
+     state<=REPLAY;
+    end
+    // Choose the full or the incremental replay (the snapshot is valid now).
+    REPLAY: begin
+     zctx_prev<=zctx;
+     if(INC_REPLAY && inc_valid && !scroll_dirty && !flip_l && zctx==zctx_prev && target>inc_line) begin
+      // Resume after the last replayed line. The ROZ line start of line
+      // inc_line is base+inc_line*inc; the loop below adds one increment per
+      // line before target, so add the missing one for inc_line itself here.
+      scroll_line<=inc_line+1'b1;
+      z_linex<=z_linex+z_incyx;z_liney<=z_liney+z_incyy;
+     end else begin
+      for(i=0;i<4;i=i+1) begin scrollx[i]<=16'h3a-2*i;scrolly[i]<=0;end
+      scroll_line<=0;scroll_dirty<=0;
+     end
      state<=SCROLL;
     end
     // Scroll command replay, MAME order: lines 0..target ascending, layers
     // 0..3, X then Y. One read per cycle; data is applied one cycle later.
     SCROLL: begin
-     // ROZ line start: seeded on the first replay cycle (the snapshot regs are
-     // valid by then) and advanced by incyx/incyy once per replayed line, so
+     // ROZ line start: seeded on the fourth replay cycle of line 0 (the
+     // pipelined z_basex/z_basey above are valid from there) and advanced by incyx/incyy once per replayed line, so
      // it lands on exactly MAME's startx/starty for `target` with no per-line
      // multiply by the line number.
-     if(scroll_line==0 && sidx==0) begin z_linex<=z_basex;z_liney<=z_basey;end
+     if(scroll_line==0 && sidx==3'd3) begin z_linex<=z_basex;z_liney<=z_basey;end
      if(sidx==3'd7) begin
       sidx<=0;
       if(scroll_line==target) state<=SCROLL_LAST;
@@ -479,6 +544,7 @@ module na1_renderer #(parameter DEPTH=4,parameter integer VREG_QUIET=1024,parame
      end else sidx<=sidx+1'b1;
     end
     SCROLL_LAST: begin                          // final Y word applied this cycle
+     inc_valid<=!flip_l;inc_line<=target;
      // M33: game FLIP mirrors the window with the line (readout x -> 303-x).
      win_min_x<=gflip ? 9'd303-c_max_x : c_min_x;win_max_x<=gflip ? 9'd303-c_min_x : c_max_x;
      win_min_y<=c_min_y;win_max_y<=c_max_y;
@@ -548,6 +614,10 @@ module na1_renderer #(parameter DEPTH=4,parameter integer VREG_QUIET=1024,parame
     DONE: begin busy<=0;lines_rendered<=lines_rendered+1'b1;state<=IDLE;end
     default: state<=IDLE;
    endcase
+
+   // A scroll RAM write at or above the line being rendered invalidates the
+   // incremental state (placed after the case so it overrides the clear).
+   if(scroll_wr_event && scroll_wr_line<=target) scroll_dirty<=1;
 
    // ---- scroll read data phase --------------------------------------------
    d_valid<=state==SCROLL;d_isy<=sidx[0];d_layer<=sidx[2:1];d_line<=scroll_line;
@@ -698,7 +768,8 @@ module na1_renderer #(parameter DEPTH=4,parameter integer VREG_QUIET=1024,parame
     // mhead already reflects the new meta entry here (meta_rd advanced when
     // the previous burst's last pixel committed), so m_sx is valid now.
     if((state==LAYER || state==SPRITES) && meta_count!=0 && row_valid[sl] && !row_pop[sl]) begin
-     writer_active<=1;wk<=0;wx_p<=m_sx;claimed_p<=claimed[m_sx[8:0]];
+     writer_active<=1;wk<=0;wx_p<=m_sx;claimed_p<=claimed[m_sx[8:0]];pmap_p<=pmap[m_sx[8:0]];
+     wmeta<=mhead;row<=row_data[sl*64+:64];
     end
    end else begin
     if(w_in_window && wvis) begin
@@ -706,7 +777,7 @@ module na1_renderer #(parameter DEPTH=4,parameter integer VREG_QUIET=1024,parame
       lb_we<=1;lb_waddr<={buf_sel,wx_p[8:0]};lb_wdata<={1'b0,widx};pmap[wx_p[8:0]]<={1'b0,m_pri};
      end else if(!claimed_p) begin
       claimed[wx_p[8:0]]<=1;
-      if(pmap[wx_p[8:0]]<={1'b0,m_pri}) begin
+      if(pmap_p<={1'b0,m_pri}) begin
        if(m_shadow) begin sb_we<=1;sb_waddr<={buf_sel,wx_p[8:0]};sb_wdata<=1;end
        else begin lb_we<=1;lb_waddr<={buf_sel,wx_p[8:0]};lb_wdata<={m_altpal,widx};end
       end
@@ -714,7 +785,7 @@ module na1_renderer #(parameter DEPTH=4,parameter integer VREG_QUIET=1024,parame
     end
     // Prefetch the next pixel's address/claimed bit one cycle ahead; skipped
     // on the last pixel (wk==7), which instead re-primes at the next arm.
-    if(wk!=3'd7) begin wx_p<=wx_p_next;claimed_p<=claimed[wx_p_next[8:0]];end
+    if(wk!=3'd7) begin wx_p<=wx_p_next;claimed_p<=claimed[wx_p_next[8:0]];pmap_p<=pmap[wx_p_next[8:0]];end
     if(wk==3'd7) begin writer_active<=0;row_pop[sl]<=1;meta_rd<=meta_rd+1'b1;end
     wk<=wk+1'b1;
    end

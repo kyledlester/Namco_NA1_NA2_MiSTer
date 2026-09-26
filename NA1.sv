@@ -318,6 +318,7 @@ module emu (
         .nvram_dirty_event(eeprom_dirty_event));
     wire video_ack,scroll_ack,sprite_ack;
     wire [15:0] video_rdata,scroll_rdata,sprite_rdata;
+    wire scroll_wr_event;wire [10:0] scroll_wr_addr;
     // M15B renderer read ports on the authoritative local stores.
     wire r_video_enable,r_scroll_enable,r_palette_enable,r_shape_enable,r_sprite_enable;
     wire [14:0] r_video_addr;wire [10:0] r_scroll_addr,r_sprite_addr;wire [11:0] r_palette_addr;wire [13:0] r_shape_addr;
@@ -332,7 +333,8 @@ module emu (
         .clk_sys(clk_sys),.reset(reset_system),.req(peripheral_req[11]),
         .write(peripheral_write),.addr(peripheral_addr),.wdata(peripheral_wdata),
         .byte_en(peripheral_byte_en),.ack(scroll_ack),.rdata(scroll_rdata),
-        .render_enable(r_scroll_enable),.render_word_addr(r_scroll_addr),.render_rdata(r_scroll_rdata));
+        .render_enable(r_scroll_enable),.render_word_addr(r_scroll_addr),.render_rdata(r_scroll_rdata),
+        .wr_event(scroll_wr_event),.wr_word_addr(scroll_wr_addr));
     na1_video_ram #(.BASE(24'hfff000),.WORDS(2048),.ADDR_WIDTH(11)) sprite(
         .clk_sys(clk_sys),.reset(reset_system),.req(peripheral_req[12]),
         .write(peripheral_write),.addr(peripheral_addr),.wdata(peripheral_wdata),
@@ -596,6 +598,7 @@ module emu (
       .flip_native(flip_native),
       .video_enable(r_video_enable),.video_word_addr(r_video_addr),.video_rdata(r_video_rdata),
       .scroll_enable(r_scroll_enable),.scroll_word_addr(r_scroll_addr),.scroll_rdata(r_scroll_rdata),
+      .scroll_wr_event(scroll_wr_event),.scroll_wr_line(scroll_wr_addr[7:0]),
       .palette_enable(r_palette_enable),.palette_word_addr(r_palette_addr),.palette_rdata(r_palette_rdata),
       .shape_enable(r_shape_enable),.shape_word_addr(r_shape_addr),.shape_rdata(r_shape_rdata),
       .sprite_enable(r_sprite_enable),.sprite_word_addr(r_sprite_addr),.sprite_rdata(r_sprite_rdata),
@@ -703,7 +706,11 @@ module emu (
     reg  crt_hs_ref_d = 1'b0;
     always @(posedge clk_sys) crt_hs_ref_d <= crt_hs_ref;
     wire crt_hs_ref_rise = crt_hs_ref && !crt_hs_ref_d;
-    wire signed [31:0] crt_read_inc = CRT_PIXEL_HZ - (crt_hsize_s * CRT_STEP);
+    // Registered (setup-timing fix): the signed multiply sat in series with
+    // the phase adder and compare below and failed at 100 MHz. crt_hsize_s
+    // only changes at a frame event, so a one-clock-late copy is exact.
+    reg  signed [31:0] crt_read_inc = CRT_PIXEL_HZ;
+    always @(posedge clk_sys) crt_read_inc <= CRT_PIXEL_HZ - (crt_hsize_s * CRT_STEP);
     reg [26:0] crt_phase = 27'd0;
     wire [27:0] crt_phase_sum = {1'b0, crt_phase} + crt_read_inc[26:0];
     wire crt_rd_tick = (crt_phase_sum >= CRT_SYS_HZ);
@@ -714,7 +721,9 @@ module emu (
     end
     // Hybrid read CE: the real M23 CE whenever H-Size is neutral (or the
     // feature is off), the NCO only when actually resizing.
-    wire crt_rd_ce = (!crt_act || crt_hsize_s == 4'sd0) ? vt_ce_pix : crt_rd_tick;
+    reg  crt_use_nco = 1'b0;   // registered for the same reason as crt_read_inc
+    always @(posedge clk_sys) crt_use_nco <= crt_act && crt_hsize_s != 4'sd0;
+    wire crt_rd_ce = crt_use_nco ? crt_rd_tick : vt_ce_pix;
     wire [23:0] crt_rgb;
     wire crt_hs, crt_vs, crt_hb, crt_vb;
     // HPOS_MODE 0 = HPOS_SYNCSHIFT. Upstream documents CONTENTSHIFT (mode 1)

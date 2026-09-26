@@ -128,6 +128,7 @@ module na1_c219(
  wire signed [19:0] sz=$signed({3'd0,vend})-$signed({3'd0,vstart});
  wire signed [19:0] pos_step=pos+$signed({18'd0,cnt});
  wire signed [19:0] pos_loop=$signed({3'd0,vloop})-$signed({3'd0,vstart});
+ reg signed [19:0] sz_r=0,pos_loop_r=0;
  wire signed [33:0] prod=dltdt*$signed({1'b0,frac});
  wire [15:0] lfsr_next=(lfsr>>1)^((-{15'd0,lfsr[0]})&16'hfff6);
  wire signed [15:0] dec_lin=$signed({{5{sbyte[7]}},sbyte,3'b000});
@@ -204,6 +205,10 @@ module na1_c219(
      state<=STEP;
     end
     STEP: begin
+     // Setup-timing fix: the sample length and loop offset are registered
+     // here so BOUND no longer chains the vend/vstart subtractors into its
+     // compare and the v_pos write (-0.58 ns at 100 MHz).
+     sz_r<=sz;pos_loop_r<=pos_loop;
      // A voice without key or with frequency 0 contributes nothing and does not advance.
      if(!key || freq==16'd0) state<=NEXT;
      else begin
@@ -214,9 +219,9 @@ module na1_c219(
     BOUND: begin
      // pos += cnt; end test before the fetch; loop (or noise) rewinds, else key-off
      v_ptoffset[v]<=frac;
-     if(pos_step>=sz) begin
+     if(pos_step>=sz_r) begin
       if(looped || noise) begin
-       pos_new<=pos_loop;v_pos[v]<=pos_loop;
+       pos_new<=pos_loop_r;v_pos[v]<=pos_loop_r;
        state<=(cnt==2'd0) ? INTERP : noise ? DECODE : ADDR;
       end else begin
        v_key[v]<=0;v_pos[v]<=pos_step;

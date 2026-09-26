@@ -61,6 +61,7 @@ module na1_m37702
  reg [1:0] pfx=0;
  reg w16=0;                 // current operation width (1 = 16 bits)
  reg [19:0] budget=0,spent=0;
+ reg done_settled=0;
  reg running=0,cyc_phase=0;      // cyc_phase: second tick of the current CPU cycle
  // ------------------------------------------------------------ temporaries
  reg [23:0] ea=0,ptr=0;
@@ -240,7 +241,7 @@ module na1_m37702
    st<=S_RESET0;bus_req<=0;bus_we<=0;bus_be<=0;bus_addr<=0;bus_wdata<=0;
    ra<=0;rb<=0;rx<=0;ry<=0;rs<=16'h0100;rpc<=0;rdpr<=0;rpg<=0;rdt<=0;
    fn<=0;fv<=0;fm<=0;fx<=0;fd<=0;fi<=1;fz<=1;fc<=0;ipl<=0;
-   pfx<=0;budget<=0;spent<=0;running<=0;cyc_phase<=0;halted<=0;sw_int<=0;
+   pfx<=0;budget<=0;spent<=0;running<=0;cyc_phase<=0;halted<=0;sw_int<=0;done_settled<=0;
    instr_count<=0;overrun_count<=0;cycle_count<=0;
   end else case(st)
    // ---------------------------------------------------------- reset vector
@@ -652,8 +653,12 @@ module na1_m37702
    end
    // ---------------------------------------------------------- instruction boundary
    S_DONE: begin
-    if(spent>=budget) begin
+    // One settle clock first: irq_take is registered in the SFR block, so it
+    // reflects this instruction's ipl/I-flag updates from the second cycle on.
+    if(!done_settled) done_settled<=1;
+    else if(spent>=budget) begin
      if(spent>budget) overrun_count<=overrun_count+16'd1;
+     done_settled<=0;
      instr_commit<=1;spent<=0;pfx<=0;step<=0;phase<=0;
      if(irq_take) begin irq_ack<=1;irq_ack_line<=irq_line;budget<=20'd13;start_int(vec_of(irq_line),1'b0,irq_pri);end
      else begin budget<=0;st<=S_FETCH;end

@@ -58,11 +58,28 @@ module na1_sdram_backend #(parameter CLIENTS=4,PRIORITY=3,DOWNLOAD=0,BURST2=-1)(
 
  // A client is pending when it holds a request that has neither been granted
  // nor completed. done[i] clears as soon as req[i] is withdrawn.
+ // Setup-timing fix: client requests are registered once before arbitration.
+ // Every client's req/address/data comes straight out of its own decode logic
+ // (the 68000 path was rAS -> bus decode -> DMA/store decode -> eligible ->
+ // round robin -> phy_*, -2.3 ns at 100 MHz). Clients hold a request stable
+ // until acked (the held-request contract), so a one-cycle-late copy is
+ // equivalent apart from one clock of latency. `done` still clears on the live
+ // req, on the same edge that loads req_r=0, so a completed request can never
+ // be granted twice.
+ reg [CLIENTS-1:0] req_r=0,write_r=0;
+ reg [CLIENTS*26-1:0] word_addr_r=0;
+ reg [CLIENTS*16-1:0] wdata_r=0;
+ reg [CLIENTS*2-1:0] byte_en_r=0;
+ always @(posedge clk_sys) begin
+  req_r<=reset_controller ? {CLIENTS{1'b0}} : req;
+  write_r<=write;word_addr_r<=word_addr;wdata_r<=wdata;byte_en_r<=byte_en;
+ end
+
  wire [CLIENTS-1:0] pending;
  wire [CLIENTS-1:0] eligible;
  genvar g;
  generate for(g=0;g<CLIENTS;g=g+1) begin: clients
-  assign pending[g]=req[g] && !done[g] && !(busy && owner==g);
+  assign pending[g]=req_r[g] && !done[g] && !(busy && owner==g);
   assign eligible[g]=pending[g] && (download_active ? g==DOWNLOAD : 1'b1);
   assign ack[g]=!reset && req[g] && done[g];
   assign rdata[g*16+:16]=ack[g] ? response[g] : 16'd0;
@@ -94,8 +111,8 @@ module na1_sdram_backend #(parameter CLIENTS=4,PRIORITY=3,DOWNLOAD=0,BURST2=-1)(
  always @* begin
   grant_write=0;grant_addr=0;grant_wdata=0;grant_be=2'b11;
   for(j=0;j<CLIENTS;j=j+1) if(grant_idx==j) begin
-   grant_write=write[j];grant_addr=word_addr[j*26+:26];
-   grant_wdata=wdata[j*16+:16];grant_be=byte_en[j*2+:2];
+   grant_write=write_r[j];grant_addr=word_addr_r[j*26+:26];
+   grant_wdata=wdata_r[j*16+:16];grant_be=byte_en_r[j*2+:2];
   end
  end
 

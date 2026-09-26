@@ -37,3 +37,13 @@ set_output_delay -min -clock SDRAM_CLK -0.9 $na1_sdram_outputs
 derive_clock_uncertainty
 # Core reset crossings must be reviewed in TimeQuest once fitting is available.
 # No broad false-path exception is added to hide synchronizer timing paths.
+
+# The framework's HQ2x Blend stage only advances on its clk_en (the
+# scandoubler's 4x pixel enable: 4 x 7.16 MHz, i.e. every 3-4 clk_sys cycles
+# at 100 MHz, never on consecutive cycles), so register-to-register paths
+# inside Blend have at least two clocks. Without this the HQ2x filter paths
+# fail setup by ~2 ns at 100 MHz.
+set_multicycle_path -setup 2 -from [get_registers {*|Hq2x:Hq2x|Blend:blender|*}] \
+    -to [get_registers {*|Hq2x:Hq2x|Blend:blender|*}]
+set_multicycle_path -hold 1 -from [get_registers {*|Hq2x:Hq2x|Blend:blender|*}] \
+    -to [get_registers {*|Hq2x:Hq2x|Blend:blender|*}]
