@@ -65,10 +65,12 @@ module na1_board_presentation(
 );
     localparam [7:0] PANEL_JOYSTICK = 8'h00; // 8-way + 3 buttons + start
     localparam [7:0] PANEL_QUIZ     = 8'h01; // 4 answer buttons + start
+    localparam [7:0] PANEL_JOY2     = 8'h02; // 8-way + 2 buttons + start
 
     // Any unknown panel byte degrades to the joystick panel, matching the
     // record's general "unknown value -> the safe default" rule.
     wire quiz = (cfg_panel == PANEL_QUIZ);
+    wire joy2 = (cfg_panel == PANEL_JOY2);
 
     // --- 1. base orientation -------------------------------------------
     // orient 00 "Horizontal"   = H, the board's own correct presentation
@@ -89,15 +91,20 @@ module na1_board_presentation(
     //   J1 Button 1 -> p1[3]   J2 Button 2 -> p1[2]
     //   J3 Button 3 -> p1[1]   J4 Button 4 -> p1[0]
     //   J5 Start    -> p1[7]   J6 Credit   -> coin
-    function automatic [7:0] panel_map(input [31:0] joy, input is_quiz);
+    // Two-button joystick panel (F/A, Exvania, Tinkle Pit): the joystick
+    // panel with Button 3 not wired, so p1[6] always reads released. J bit
+    // positions are unchanged (the MRA names J3 "-", which MiSTer skips when
+    // mapping), so Start/Coin stay on J5/J6 and saved maps keep working.
+    function automatic [7:0] panel_map(input [31:0] joy, input is_quiz, input is_joy2);
         panel_map = is_quiz ? {joy[8], 3'b000, joy[4], joy[5], joy[6], joy[7]}
+                  : is_joy2 ? {joy[7], 1'b0, joy[5:0]}
                             :  joy[7:0];
     endfunction
 
-    assign input_p1 = ~panel_map(joystick_0, quiz);
-    assign input_p2 = ~panel_map(joystick_1, quiz);
-    assign input_p3 = ~panel_map(joystick_2, quiz);
-    assign input_p4 = ~panel_map(joystick_3, quiz);
+    assign input_p1 = ~panel_map(joystick_0, quiz, joy2);
+    assign input_p2 = ~panel_map(joystick_1, quiz, joy2);
+    assign input_p3 = ~panel_map(joystick_2, quiz, joy2);
+    assign input_p4 = ~panel_map(joystick_3, quiz, joy2);
     assign coin_1   = quiz ? joystick_0[9] : joystick_0[8];
     assign coin_2   = quiz ? joystick_1[9] : joystick_1[8];
     assign coin_3   = quiz ? joystick_2[9] : joystick_2[8];

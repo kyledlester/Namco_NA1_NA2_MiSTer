@@ -57,7 +57,7 @@ Six or seven bytes that describe the board, never the game:
 | 1-2 | KEYCUS ID | little-endian: the Namco part number in decimal, e.g. C349 = `$015D` → `5D 01` |
 | 3 | KEYCUS ID word | which KEYCUS word (0-7) returns the ID |
 | 4 | Cabinet orientation | `00` MAME ROT0, `01` MAME ROT90 (F/A) |
-| 5 | Control panel | `00` joystick + 3 buttons, `01` four-button quiz panel |
+| 5 | Control panel | `00` joystick + 3 buttons, `01` four-button quiz panel, `02` joystick + 2 buttons (Button 3 not wired; name J3 `-` in `<buttons>`) |
 | 6 | ROM-board I/O (optional) | `00` plain EPROM board, `01` MSM6242 RTC + status port (unused by the supported titles) |
 
 The values for every supported board are in the `MRA/` files.

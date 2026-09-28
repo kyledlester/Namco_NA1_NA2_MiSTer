@@ -144,14 +144,26 @@ module emu (
     // cannot collide with anything live: status[0] Reset, [3:2] Scandoubler
     // Fx, [4] Service Mode, [7:6] Orientation. status[1], [5] and
     // [8]..[95] stay free ([5] retired with the Service 1 row); CRT Adjust
-    // uses only [108:96]:
+    // uses only [108:96] and [116:112]:
     //   [96]      CRT Adjust master enable (0 = Off = default = TRUE bypass)
-    //   [100:97]  CRT H-Size     signed 4-bit, -8..+7, one step = ~1% WIDER
+    //   [100:97]  RETIRED (was the 4-bit -8..+7 H-Size); referenced nowhere
     //   [104:101] CRT H-Position signed 4-bit, -8..+7, one step = 6 px right
     //   [108:105] CRT V-Shift    signed 4-bit, -8..+7, one step = 1 line down
-    // All three are wrap-encoded around 0 (MiSTer signed convention), so the
-    // all-zero power-on status word is exactly "CRT Adjust Off, everything
-    // neutral" -- an untouched user gets the accepted M23/M24 core.
+    //   [116:112] CRT H-Size     5-bit OSD index -> -12..+10, one step = 1%
+    //             WIDER. Index 0 = 0, 1..10 = +1..+10, 11..22 = -12..-1,
+    //             23..31 (unreachable from the OSD) = 0. Kept inside one
+    //             16-bit hps_io status word so it never updates half-written.
+    // H-Position/V-Shift are wrap-encoded around 0 (MiSTer signed convention)
+    // and H-Size index 0 is 0, so the all-zero power-on status word is exactly
+    // "CRT Adjust Off, everything neutral" -- an untouched user gets the
+    // accepted M23/M24 core.
+    // H-Size's positive limit is geometric, not arithmetic: the read NCO is
+    // re-phased at HSync, so widening stretches the picture away from it and
+    // the right edge of the 304 active dots (104..407 after the HSync rise)
+    // lands at 408/(1 - hsize/100). +10 ends at 453.3 of 456 dots (2.7-dot
+    // front porch, all 304 px shown); +11 would run the active video into the
+    // next HSync and crop it. Measured for every value at H-Position 0 and
+    // both extremes by a crt_adjust + glue sweep.
     // The P1/H1 submenu+hide convention follows the upstream CRT Adjust
     // reference; H1 items are gated by status_menumask bit 1 (Main_MiSTer
     // user_io_hd_mask() parses the digit after H, so H1 -> menumask bit 1).
@@ -187,7 +199,7 @@ module emu (
     // Like J1/V, `v` is counted by menu.cpp's selection pass but never drawn,
     // so it MUST stay at the end with them.
     `include "build_id.v"
-    localparam CONF_STR = {"NA1;;-;O[3:2],Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%;-;O[7:6],Orientation,Horizontal,Vertical CCW,Vertical CW,Flipped;-;O[4],Service Mode,Off,On;-;P1,CRT Adjust;P1O[96],CRT Adjust,Off,On;H1P1O[100:97],CRT H-Size,0,+1,+2,+3,+4,+5,+6,+7,-8,-7,-6,-5,-4,-3,-2,-1;H1P1O[104:101],CRT H-Position,0,+6,+12,+18,+24,+30,+36,+42,-48,-42,-36,-30,-24,-18,-12,-6;H1P1O[108:105],CRT V-Shift,0,+1,+2,+3,+4,+5,+6,+7,-8,-7,-6,-5,-4,-3,-2,-1;-;R[0],Reset;-;J1,Shot,Bomb,Button 3,Start,Coin,Button 6;v,1;V,v",`BUILD_DATE};
+    localparam CONF_STR = {"NA1;;-;O[3:2],Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%;-;O[7:6],Orientation,Horizontal,Vertical CCW,Vertical CW,Flipped;-;O[4],Service Mode,Off,On;-;P1,CRT Adjust;P1O[96],CRT Adjust,Off,On;H1P1O[116:112],CRT H-Size,0,+1,+2,+3,+4,+5,+6,+7,+8,+9,+10,-12,-11,-10,-9,-8,-7,-6,-5,-4,-3,-2,-1;H1P1O[104:101],CRT H-Position,0,+6,+12,+18,+24,+30,+36,+42,-48,-42,-36,-30,-24,-18,-12,-6;H1P1O[108:105],CRT V-Shift,0,+1,+2,+3,+4,+5,+6,+7,-8,-7,-6,-5,-4,-3,-2,-1;-;R[0],Reset;-;J1,Shot,Bomb,Button 3,Start,Coin,Button 6;v,1;V,v",`BUILD_DATE};
     wire forced_scandoubler, direct_video;
     wire [21:0] gamma_bus;
     wire [31:0] joystick_0, joystick_1, joystick_2, joystick_3;
@@ -665,12 +677,14 @@ module emu (
     // makes every frame internally consistent and a control change simply takes
     // effect at the next frame. Same idiom as M24's flip_l.
     reg         crt_on   = 1'b0;
-    reg  signed [3:0] crt_hsize_s = 4'sd0;   // -8..+7, + = WIDER
+    reg  signed [4:0] crt_hsize_s = 5'sd0;   // -12..+10, + = WIDER
     reg  signed [3:0] crt_hpos_s  = 4'sd0;   // -8..+7, one step = 6 px right
     reg  signed [3:0] crt_vsh_s   = 4'sd0;   // -8..+7, one step = 1 line down
     always @(posedge clk_sys) if (timing_frame_event) begin
         crt_on      <= status[96];
-        crt_hsize_s <= $signed(status[100:97]);
+        crt_hsize_s <= (status[116:112] <= 5'd10) ? $signed(status[116:112])
+                     : (status[116:112] <= 5'd22) ? $signed(status[116:112] - 5'd23)
+                     : 5'sd0;
         crt_hpos_s  <= $signed(status[104:101]);
         crt_vsh_s   <= $signed(status[108:105]);
     end
@@ -695,8 +709,10 @@ module emu (
     // hsize lowers the read rate -> slower read -> WIDER picture. The ratio
     // READ_INC/SYS_HZ -- the only thing that sets the picture -- is the same
     // function of hsize as in M26, so behaviour is physically unchanged.
-    // Max READ_INC = 7,159,000 + 8*71,590 = 7,731,720, worst-case sum
-    // 100,225,999 + 7,731,720 = 107,957,719 < 2^27: 27-bit phase / 28-bit sum.
+    // Max READ_INC (hsize -12) = 7,159,000 + 12*71,590 = 8,018,080, worst-case
+    // sum 100,225,999 + 8,018,080 = 108,244,079 < 2^27: 27-bit phase / 28-bit
+    // sum. Min READ_INC (hsize +10) = 6,443,100 > 0. Both stay far below
+    // SYS_HZ, so there is at most one read tick per clock.
     // The accumulator is re-phased on every hs_ref_out rise so every line gets
     // an identical read-tick pattern.
     localparam integer CRT_SYS_HZ   = SYS_HZ;
@@ -722,7 +738,7 @@ module emu (
     // Hybrid read CE: the real M23 CE whenever H-Size is neutral (or the
     // feature is off), the NCO only when actually resizing.
     reg  crt_use_nco = 1'b0;   // registered for the same reason as crt_read_inc
-    always @(posedge clk_sys) crt_use_nco <= crt_act && crt_hsize_s != 4'sd0;
+    always @(posedge clk_sys) crt_use_nco <= crt_act && crt_hsize_s != 5'sd0;
     wire crt_rd_ce = crt_use_nco ? crt_rd_tick : vt_ce_pix;
     wire [23:0] crt_rgb;
     wire crt_hs, crt_vs, crt_hb, crt_vb;
@@ -740,7 +756,7 @@ module emu (
     crt_adjust #(.VTOTAL(263),.HTOTAL(456),.HPOS_MODE(0)) crt_adjust(
       .clk(clk_sys),.pxl_cen(vt_ce_pix),.pxl2_cen(crt_rd_ce),
       .active(crt_act),
-      .hsize($signed({crt_hsize_s[3],crt_hsize_s})),.hoffset(crt_hoffset),.voffset(crt_voffset),
+      .hsize(crt_hsize_s),.hoffset(crt_hoffset),.voffset(crt_voffset),
       .r_in(vt_rgb[23:16]),.g_in(vt_rgb[15:8]),.b_in(vt_rgb[7:0]),
       .hs_in(vt_hsync),.vs_in(vt_vsync),.hb_in(vt_hblank),.vb_in(vt_vblank),
       .r_out(crt_rgb[23:16]),.g_out(crt_rgb[15:8]),.b_out(crt_rgb[7:0]),

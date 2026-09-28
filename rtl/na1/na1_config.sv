@@ -22,8 +22,9 @@
 //                             [7:1] reserved, write 0.
 //   byte 5  CONTROL_PANEL     0 = joystick + 3 buttons + start (namcona1_joy
 //                             cabinets); 1 = 4-button quiz panel + start
-//                             (namcona1_quiz cabinets). Unknown values degrade
-//                             to 0.
+//                             (namcona1_quiz cabinets); 2 = joystick + 2
+//                             buttons + start (Button 3 not wired). Unknown
+//                             values degrade to 0.
 //   byte 6  ROM_BOARD_IO      [0] 1 = the ROM board fits an MSM6242 RTC at
 //                             $DC0000-$DC001F and a printer/battery status
 //                             byte at $D80001 in the program-ROM window
