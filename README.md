@@ -31,12 +31,12 @@ ROMs are not included. You must supply your own.
 | --- | --- | --- | --- | --- | --- |
 | Bakuretsu Quiz Ma-Q Dai Bouken (Japan) | `bkrtmaq` | 1992 | Quiz | NA-1 | Boots to title screen and is playable |
 | Cosmo Gang the Puzzle (Japan) | `cgangpzlj` | 1992 | Puzzle | NA-1 | Boots to title screen and is playable |
-| Emeraldia (Japan, Version B) | `emeraldajb` | 1993 | Puzzle | NA-1 | Boots to title screen and is playable |
+| Emeraldia (Japan, Version B) | `emeraldajb` | 1993 | Puzzle | NA-1 | Occasional junk graphic band during the how to screen |
 | Exvania (Japan) | `exvaniaj` | 1992 | Maze-based competitive multiplayer | NA-1 | Boots to title screen and is playable |
 | F/A (Japan) | `fa` | 1992 | Shoot 'em up | NA-1 | Boots to title screen and is playable |
 | Knuckle Heads (Japan) | `knckheadj` | 1992 | Fighting | NA-2 | Boots to title screen and is playable |
 | Nettou! Gekitou! Quiztou!! (Japan) | `quiztou` | 1993 | Quiz | NA-2 | Boots to title screen and is playable |
-| Numan Athletics (Japan) | `numanathj` | 1993 | Sports | NA-2 | Boots to title screen and is playable |
+| Numan Athletics (Japan) | `numanathj` | 1993 | Sports | NA-2 | Tower game runs at roughly 50% speed |
 | Super World Court (Japan) | `swcourtj` | 1992 | Sports (tennis) | NA-1 | Boots to title screen and is playable |
 | Tinkle Pit (Japan) | `tinklpit` | 1993 | Action | NA-1 | Boots to title screen and is playable |
 
@@ -48,14 +48,14 @@ different ROM set.
 | Game | MAME set | Year | Parent game | Status |
 | --- | --- | --- | --- | --- |
 | Cosmo Gang the Puzzle (US) | `cgangpzl` | 1992 | Cosmo Gang the Puzzle | Boots to title screen and is playable |
-| Emeraldia (World) | `emeralda` | 1993 | Emeraldia | Boots to title screen and is playable |
-| Emeraldia (Japan) | `emeraldaj` | 1993 | Emeraldia | Boots to title screen and is playable |
-| Emeraldia (Japan, Version D) | `emeraldajd` | 1993 | Emeraldia | Boots to title screen and is playable |
+| Emeraldia (World) | `emeralda` | 1993 | Emeraldia | Occasional junk graphic band during the how to screen |
+| Emeraldia (Japan) | `emeraldaj` | 1993 | Emeraldia | Occasional junk graphic band during the how to screen |
+| Emeraldia (Japan, Version D) | `emeraldajd` | 1993 | Emeraldia | Occasional junk graphic band during the how to screen |
 | Exvania (World) | `exvania` | 1992 | Exvania | Boots to title screen and is playable |
 | Fighter & Attacker (US) | `fghtatck` | 1992 | F/A | Boots to title screen and is playable |
 | Knuckle Heads (World) | `knckhead` | 1992 | Knuckle Heads | Boots to title screen and is playable |
 | Knuckle Heads (Japan, Prototype) | `knckheadjp` | 1992 | Knuckle Heads | Boots to title screen and is playable |
-| Numan Athletics (World) | `numanath` | 1993 | Numan Athletics | Boots to title screen and is playable |
+| Numan Athletics (World) | `numanath` | 1993 | Numan Athletics | Tower game runs at roughly 50% speed |
 | Super World Court (World) | `swcourt` | 1992 | Super World Court | Boots to title screen and is playable |
 | Super World Court (World, bootleg) | `swcourtb` | 1994 | Super World Court | Boots to title screen and is playable |
 
