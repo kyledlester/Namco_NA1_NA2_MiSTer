@@ -36,7 +36,7 @@ ROMs are not included. You must supply your own.
 | F/A (Japan) | `fa` | 1992 | Shoot 'em up | NA-1 | Boots to title screen and is playable |
 | Knuckle Heads (Japan) | `knckheadj` | 1992 | Fighting | NA-2 | Boots to title screen and is playable |
 | Nettou! Gekitou! Quiztou!! (Japan) | `quiztou` | 1993 | Quiz | NA-2 | Boots to title screen and is playable |
-| Numan Athletics (Japan) | `numanathj` | 1993 | Sports | NA-2 | Tower game runs at roughly 50% speed |
+| Numan Athletics (Japan) | `numanathj` | 1993 | Sports | NA-2 | Full game tested working |
 | Super World Court (Japan) | `swcourtj` | 1992 | Sports (tennis) | NA-1 | Boots to title screen and is playable |
 | Tinkle Pit (Japan) | `tinklpit` | 1993 | Action | NA-1 | Boots to title screen and is playable |
 
@@ -55,7 +55,7 @@ different ROM set.
 | Fighter & Attacker (US) | `fghtatck` | 1992 | F/A | Boots to title screen and is playable |
 | Knuckle Heads (World) | `knckhead` | 1992 | Knuckle Heads | Boots to title screen and is playable |
 | Knuckle Heads (Japan, Prototype) | `knckheadjp` | 1992 | Knuckle Heads | Boots to title screen and is playable |
-| Numan Athletics (World) | `numanath` | 1993 | Numan Athletics | Tower game runs at roughly 50% speed |
+| Numan Athletics (World) | `numanath` | 1993 | Numan Athletics | Full game tested working |
 | Super World Court (World) | `swcourt` | 1992 | Super World Court | Boots to title screen and is playable |
 | Super World Court (World, bootleg) | `swcourtb` | 1994 | Super World Court | Boots to title screen and is playable |
 

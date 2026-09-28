@@ -512,6 +512,16 @@ module emu (
         .down_req(io_rom_req),.down_ack(io_rom_ack),.down_rdata(io_rom_rdata),
         .cpu_req(m_cpu_req),.cpu_write(m_cpu_write),.cpu_addr(m_cpu_addr),.cpu_wdata(m_cpu_wdata),
         .cpu_byte_en(m_cpu_byte_en),.cpu_ack(m_cpu_ack));
+    // CPU ROM read cache: resident program/mask-ROM words complete in the
+    // 68000's minimum four-clock bus cycle, as MAME's NA-1 does; SDRAM misses
+    // keep the shared path. Flushed while any download may rewrite the ROM.
+    // Blitter ROM reads and ROM-board I/O never reach it. docs/NUMAN_ROOT_CAUSE.md.
+    wire cache_rom_req,cache_rom_ack;wire [15:0] cache_rom_rdata;
+    na1_rom_cache #(.INDEX_BITS(14)) rom_cache(.clk_sys(clk_sys),.reset(reset_system),
+        .flush(download_active),
+        .req(io_rom_req),.image(c_rom_image),.word_addr(c_rom_word_addr),
+        .ack(io_rom_ack),.rdata(io_rom_rdata),
+        .down_req(cache_rom_req),.down_ack(cache_rom_ack),.down_rdata(cache_rom_rdata));
     na1_blitter_fabric dma(
       .clk_sys(clk_sys),
       .reset(reset_system),
@@ -535,15 +545,15 @@ module emu (
       .work_rdata(cpu_work_rdata),
       .cpu_work_byte_en(c_work_byte_en),
       .work_byte_en(cpu_work_byte_en),
-      .cpu_rom_req(io_rom_req),
+      .cpu_rom_req(cache_rom_req),
       .rom_req(runtime_rom_req),
       .cpu_rom_image(c_rom_image),
       .rom_image(runtime_rom_image),
-      .cpu_rom_ack(io_rom_ack),
+      .cpu_rom_ack(cache_rom_ack),
       .rom_ack(runtime_rom_ack),
       .cpu_rom_word_addr(c_rom_word_addr),
       .rom_word_addr(runtime_rom_word_addr),
-      .cpu_rom_rdata(io_rom_rdata),
+      .cpu_rom_rdata(cache_rom_rdata),
       .rom_rdata(runtime_rom_rdata),
       .cpu_peripheral_req(c_peripheral_req),
       .peripheral_req(peripheral_req),

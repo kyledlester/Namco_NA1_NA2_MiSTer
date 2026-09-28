@@ -50,6 +50,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE rtl/na1/na1_board_presentation.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/na1/na1_config.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/na1/na1_keycus.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/na1/na1_rom_board_io.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/na1/na1_rom_cache.sv
 
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/na1/na1_scanline_events.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/na1/na1_video_timing.sv
