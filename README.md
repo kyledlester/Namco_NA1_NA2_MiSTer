@@ -1,5 +1,7 @@
 # Namco NA-1 / NA-2 for MiSTer
 
+<img width="1680" height="1256" alt="image" src="https://github.com/user-attachments/assets/e38a4fa7-a0ee-4d3e-80f4-225c5d2a3573" />
+
 A MiSTer FPGA core for Namco's **NA-1** and **NA-2** arcade boards (1992-1994).
 One core (`Namco_NA1_NA2`) runs every supported game; each game has its own MRA.
 
