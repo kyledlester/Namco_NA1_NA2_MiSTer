@@ -9,8 +9,7 @@ I created this core because I wanted to play these games on my MiSTer FPGA. I am
 
 This system offers a number of great games, many of which are fun to play with friends. A handful of the games support four players.
 
-**Status: beta.** All ten main titles boot to the title screen and are playable
-on real MiSTer hardware.
+**Status: Release candidate.** All games are playable with no currently known issues.
 
 ## Quick start
 
