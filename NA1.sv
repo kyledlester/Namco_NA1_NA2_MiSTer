@@ -214,15 +214,27 @@ module emu (
         // (upstream convention: menumask bit 1 gates the H1 entries).
         .status_menumask({14'd0, ~status[96], 1'b0}),
         .gamma_bus(gamma_bus),
-        .ioctl_download(download_active), .ioctl_wr(download_wr),
-        .ioctl_addr(download_addr), .ioctl_dout(download_data),
-        .ioctl_index(download_index), .ioctl_wait(download_wait),
+        .ioctl_download(h_download), .ioctl_wr(h_wr),
+        .ioctl_addr(h_addr), .ioctl_dout(h_dout),
+        .ioctl_index(h_index), .ioctl_wait(h_wait),
         .ioctl_upload(nvram_upload_active), .ioctl_upload_req(eeprom_dirty),
         .ioctl_upload_index(NVRAM_INDEX[7:0]),
         .ioctl_din(eeprom_nvram_rdata), .ioctl_rd(),
         // M30: MSM6242B-layout BCD date/time for the optional ROM-board RTC.
         .RTC(rtc)
     );
+    // DDR3 fast ROM loading (rtl/na1/na1_fastload.sv). MRA index-0 <rom address="0x30000000">: Main_MiSTer
+    // copies the assembled stream into DDR3 and the block replays it as the ordinary ioctl word stream, so
+    // every download_* consumer below is unchanged. Without the attribute the stream passes straight through.
+    wire h_download,h_wr,h_wait;wire [26:0] h_addr;wire [15:0] h_dout,h_index;
+    wire fl_own,fl_rd;wire [28:0] fl_addr;
+    wire sr_rd,sr_we;wire [7:0] sr_burstcnt,sr_be;wire [28:0] sr_addr;wire [63:0] sr_din;
+    na1_fastload #(.INDEX(16'd0),.BASE_W(29'h6000000)) fastload(.clk(clk_sys),.init(!pll_locked),
+        .h_download(h_download),.h_index(h_index),.h_wr(h_wr),.h_addr(h_addr),.h_dout(h_dout),.h_wait(h_wait),
+        .c_download(download_active),.c_index(download_index),.c_wr(download_wr),.c_addr(download_addr),
+        .c_dout(download_data),.c_wait(download_wait),
+        .others_idle(!sr_rd && !sr_we),.own(fl_own),.d_rd(fl_rd),.d_addr(fl_addr),.d_busy(DDRAM_BUSY),
+        .d_dout(DDRAM_DOUT),.d_dout_ready(DDRAM_DOUT_READY),.active(),.loads());
     wire reset_system, reset_maincpu, reset_mcu;
     wire ce_master, ce_68k, ce_mcu;
     (* keep = "true" *) wire [95:0] debug_cpu;
@@ -845,7 +857,15 @@ module emu (
     wire rotate_ccw = hdmi_rotate_ccw;  // OSD "Vertical CCW" (orient 01): rotate H 90 CCW
     wire flip = 1'b0;                   // M24: native flip is upstream; never used
     wire video_rotated;
-    screen_rotate screen_rotate(.*);
+    // DDR3 port: screen_rotate's framebuffer writes, or the fast ROM loader while it owns the port.
+    screen_rotate screen_rotate(.*,.DDRAM_BUSY(DDRAM_BUSY || fl_own),.DDRAM_BURSTCNT(sr_burstcnt),
+        .DDRAM_ADDR(sr_addr),.DDRAM_DIN(sr_din),.DDRAM_BE(sr_be),.DDRAM_WE(sr_we),.DDRAM_RD(sr_rd));
+    assign DDRAM_BURSTCNT = fl_own ? 8'd1    : sr_burstcnt;
+    assign DDRAM_ADDR     = fl_own ? fl_addr : sr_addr;
+    assign DDRAM_DIN      = sr_din;
+    assign DDRAM_BE       = fl_own ? 8'hFF   : sr_be;
+    assign DDRAM_WE       = fl_own ? 1'b0    : sr_we;
+    assign DDRAM_RD       = fl_own ? fl_rd   : sr_rd;
     assign VGA_DISABLE = 1'b0;
     assign VGA_F1 = 1'b0;
     assign VGA_SCALER = 1'b0;
@@ -912,7 +932,7 @@ module emu (
     assign USER_OUT = '1;
     assign {UART_RTS,UART_TXD,UART_DTR} = 3'd0;
     assign {SD_SCK,SD_MOSI,SD_CS} = 'z;
-    // DDR3 (DDRAM_*) is driven only by screen_rotate above (the M21 HDMI/
-    // scaler rotation framebuffer); all NA-1 game state/memory still lives
-    // exclusively in SDRAM, unchanged.
+    // DDR3 (DDRAM_*) carries screen_rotate's framebuffer (M21) and, during a
+    // fast ROM load, the replayed ROM stream; all NA-1 game state/memory still
+    // lives exclusively in SDRAM.
 endmodule
